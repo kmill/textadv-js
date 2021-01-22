@@ -911,11 +911,11 @@ world.containing_room.add_method({
 def_property("notable_description", 1, {
   doc: `Represents a special textual description of an object if it is
 notable enough to be put in a special paragraph in a location description.
-If it is set to false, then it is take to mean there is no such paragraph.`
+If it is set to null, then it is taken to mean there is no such paragraph.`
 });
 world.notable_description.add_method({
   name: "default",
-  handle: (x) => false
+  handle: (x) => null
 });
 
 def_property("reported", 1, {
@@ -924,6 +924,11 @@ def_property("reported", 1, {
 world.reported.add_method({
   name: "default",
   handle: (x) => false
+});
+world.reported.add_method({
+  name: "default thing",
+  when: (x) => world.is_a(x, "thing"),
+  handle: (x) => true
 });
 
 def_property("subject_pronoun", 1, {
@@ -1804,6 +1809,24 @@ class HTML_abstract_builder {
       }
     });
   }
+
+  with_block(tag, f) {
+    out.enter_block(tag);
+    try {
+      f();
+    } finally {
+      out.leave();
+    }
+  }
+  with_inline(tag, f) {
+    out.enter_inline(tag);
+    try {
+      f();
+    } finally {
+      out.leave();
+    }
+  }
+  
   wrap_action_link(action, f) {
     out.enter_inline("a");
     out.attr("href", "");
@@ -1867,26 +1890,34 @@ class HTML_abstract_builder {
   The(o) { out.wrap_examine(o, () => out.The_(o)); }
   a(o) { out.wrap_examine(o, () => out.write_text(world.indefinite_name(o))); }
   A(o) { out.wrap_examine(o, () => out.write_text(str_util.cap(world.indefinite_name(o)))); }
-  he(o) { out.wrap_examine(o, () => out.write_text(world.subject_pronoun(o))); }
-  He(o) { out.wrap_examine(o, () => out.write_text(str_util.cap(world.subject_pronoun(o)))); }
-  him(o) { out.wrap_examine(o, () => out.write_text(world.object_pronoun(o))); }
-  Him(o) { out.wrap_examine(o, () => out.write_text(str_util.cap(world.object_pronoun(o)))); }
+  we(o) { out.wrap_examine(o, () => out.write_text(world.subject_pronoun(o))); }
+  We(o) { out.wrap_examine(o, () => out.write_text(str_util.cap(world.subject_pronoun(o)))); }
+  us(o) { out.wrap_examine(o, () => out.write_text(world.object_pronoun(o))); }
+  Us(o) { out.wrap_examine(o, () => out.write_text(str_util.cap(world.object_pronoun(o)))); }
 
   serial_comma(objs, {conj="and", comma=",", force_comma=false}={}) {
-    /* Concatenates a indefinite names of a list of objects, using the serial comma. */
+    /* Concatenates a list of writers, using the serial comma.  The objs can either be functions
+       that write, or be strings that will be written with `out.a`. */
+    function handle(f) {
+      if (typeof f === "string") {
+        out.a(f);
+      } else {
+        f();
+      }
+    }
     if (objs.length === 0) {
       out.write_text("nothing");
     } else if (objs.length === 1) {
-      out.a(objs[0]);
+      handle(objs[0]);
     } else if (objs.length === 2) {
       if (force_comma) {
-        out.a(objs[0]);
+        handle(objs[0]);
         out.write_text(comma + " " + conj + " ");
-        out.a(objs[1]);
+        handle(objs[1]);
       } else {
-        out.a(objs[0]);
+        handle(objs[0]);
         out.write_text(" " + conj + " ");
-        out.a(objs[1]);
+        handle(objs[1]);
       }
     } else {
       for (var i = 0; i < objs.length; i++) {
@@ -1895,21 +1926,19 @@ class HTML_abstract_builder {
         } else if (i > 0) {
           out.write_text(comma + " ");
         }
-        out.a(objs[i]);
+        handle(objs[i]);
       }
     }
   }
 
   is_are_list(objs, opts={}) {
-    if (objs.length === 0) {
-      out.write_text("is nothing");
-    } else if (objs.length === 1) {
+    /* Prefixes `serial_comma` with `is` or `are` depending on the length of the first argument. */
+    if (objs.length === 0 || objs.length === 1) {
       out.write_text("is ");
-      out.a(objs[0]);
     } else {
       out.write_text("are ");
-      out.serial_comma(objs, opts);
     }
+    out.serial_comma(objs, opts);
   }
 
   write(s) {
@@ -1921,7 +1950,17 @@ class HTML_abstract_builder {
 
        The notation "{foo|bar|baz}" is syntactic sugar for "[reword foo bar baz]", which is for
        convenient verb conjugation and such.
+
+       If s is falsy (for example null, false, or undefined), then returns immediately.
+       If s is a function, then that function is evaluated instead.
     */
+    if (!s) {
+      return;
+    }
+    if (typeof s === "function") {
+      s();
+      return;
+    }
 
     var i = 0, j = 0;
     while (j < s.length) {
@@ -2032,8 +2071,6 @@ class HTML_abstract_builder {
         return world.possessive_determiner_if_me(actor);
       else if (word === "ours")
         return world.possessive_pronoun_if_me(actor);
-      else if (reword_replacements.has(word))
-        return reword_replacements.get(word);
       else // we assume the word should stay as-is
         return word;
     } else {
@@ -2049,6 +2086,8 @@ class HTML_abstract_builder {
         return world.possessive_determiner(actor);
       else if (word === "ours")
         return world.possessive_pronoun(actor);
+      else if (reword_replacements.has(word))
+        return reword_replacements.get(word);
       else if (word.length > 1 && word.slice(-1) === "y")
         return word.slice(0, -1) + "ies";
       else
@@ -2062,16 +2101,15 @@ class HTML_abstract_builder {
    the end.  These are fine to be global because English language
    shouldn't change between games. */
 var reword_replacements = new Map;
-reword_replacements.set("is", "are");
-reword_replacements.set("has", "have");
-reword_replacements.set("hasn't", "haven't");
-reword_replacements.set("does", "do");
-reword_replacements.set("doesn't", "don't");
+reword_replacements.set("are", "is");
+reword_replacements.set("have", "has");
+reword_replacements.set("haven't", "hasn't");
+reword_replacements.set("do", "does");
+reword_replacements.set("don't", "doesn't");
 reword_replacements.set("can", "can");
 reword_replacements.set("can't", "can't");
-reword_replacements.set("switches", "switch");
-reword_replacements.set("isn't", "aren't");
-
+reword_replacements.set("switch", "switches");
+reword_replacements.set("aren't", "isn't");
 
 class HTML_para_builder extends HTML_abstract_builder {
   constructor(old_out, root) {
@@ -2208,26 +2246,25 @@ world.describe_direction.add_method({
   name: "default",
   handle: function (dir) {
     var loc = world.visible_container(world.actor);
-    var desc = world.direction_description(loc, dir);
-    if (typeof desc === "string") {
-      out.write(desc);
-    }
+    out.write(world.direction_description(loc, dir));
   }
 });
 
 def_activity("terse_obj_description", {
   doc: `Should give a terse description of an object while modifying 'mentioned' as objects
-are mentioned.`
+are mentioned. Either writes its own description, or returns something that could be given
+to out.write to result in something that fits in another sentence.`
 });
 world.terse_obj_description.add_method({
   name: "default",
   handle: function (o, notables, mentioned) {
     mentioned.add(o);
     var d = world.notable_description(o);
-    if (typeof d === "string") {
+    if (d === null) {
+      return () => out.a(o);
+    } else {
       out.write(d);
-    } else if (d === false) {
-      out.a(o);
+      return null;
     }
   }
 });
@@ -2235,9 +2272,536 @@ world.terse_obj_description.add_method({
   name: "containers",
   when: (o, notables, mentioned) => world.is_a(o, "container"),
   handle: function (o, notables, mentioned) {
-    if (world.is_opaque(o) && world.openable(o) && !world.is_open(o)) {
-      this.next();
-      out.write(" (which is closed)");
+    let td = this.next();
+    if (!td) {
+      return null;
     }
+    if (world.is_opaque(o) && world.openable(o) && !world.is_open(o)) {
+      return () => {
+        out.write(td);
+        out.write(" (which is closed)");
+      };
+    } else {
+      var contents = world.contents(o);
+      var msgs = [];
+      contents.forEach(c => {
+        if (notables.includes(c) && !mentioned.has(c)) {
+          var msg = world.terse_obj_description(c, notables, mentioned);
+          if (msg) {
+            msgs.push(msg);
+          }
+        }
+      });
+      if (msgs.length) {
+        var state = "";
+        if (world.openable(o) && !world.is_open(o)) {
+          state = "which is " + world.is_open_msg(o) + " and ";
+        }
+        return () => {
+          out.write(td);
+          out.write(" (" + state + "in which ");
+          out.is_are_list(msgs);
+          out.write(")");
+        };
+      } else if (contents.length === 0) {
+        return () => {
+          out.write(td);
+          world.write(" (which is empty)");
+        };
+      }
+    }
+    return td;
+  }
+});
+world.terse_obj_description.add_method({
+  name: "supporters",
+  when: (o, notables, mentioned) => world.is_a(o, "supporter"),
+  handle: function (o, notables, mentioned) {
+    let td = this.next();
+    if (!td) {
+      return null;
+    }
+    var contents = world.contents(o);
+    var msgs = [];
+    contents.forEach(c => {
+      if (notables.includes(c) && !mentioned.has(c)) {
+        var msg = world.terse_obj_description(c, notables, mentioned);
+        if (msg) {
+          msgs.push(msg);
+        }
+      }
+    });
+    if (msgs.length) {
+      return () => {
+        out.write(td);
+        out.write(" (on which ");
+        world.is_are_list(msgs);
+        out.write(")");
+      };
+    } else {
+      return td;
+    }
+  }
+});
+
+//// describe_object
+
+def_activity("describe_object", {
+  doc: `gives the description of an object, in the context of examining it.`
+});
+world.describe_object.add_method({
+  name: "init state",
+  handle: function (o) {
+    /* Hack: this is a global variable that is set to true if
+       anything has described this object.  Used in the 'default' handler. */
+    world.describe_object.described = false;
+  }
+});
+world.describe_object.add_method({
+  name: "description",
+  handle: function (o) {
+    this.next();
+    var d = world.description(o);
+    if (d !== null || typeof d === "string") {
+      world.describe_object.described = true;
+      out.write(d);
+    }
+  }
+});
+world.describe_object.add_method({
+  name: "container",
+  when: (o) => world.is_a(o, "container") && !world.suppress_content_description(o),
+  handle: function (o) {
+    this.next();
+    if (!world.is_opaque(o)) {
+      var contents = world.contents(o).filter(c => c !== world.actor && world.reported(c));
+      if (contents.length > 0) {
+        if (world.describe_object.described) {
+          out.para();
+        }
+        world.describe_object.described = true;
+        out.write("In "); out.the(o); out.write(" ");
+        out.is_are_list(contents.map(c => () => out.a(c)));
+        out.write(".");
+      }
+    } else if (world.openable(o) && !world.is_open(o)) {
+      if (world.describe_object.described) {
+        out.para();
+      }
+      world.describe_object.described = true;
+      out.the(o); out.write(" is closed.");
+    }
+  }
+});
+world.describe_object.add_method({
+  name: "supporter",
+  when: (o) => world.is_a(o, "supporter") && !world.suppress_content_description(o),
+  handle: function (o) {
+    this.next();
+    var contents = world.contents(o).filter(c => c !== world.actor && world.reported(c));
+    if (contents.length > 0) {
+      if (world.describe_object.described) {
+        out.para();
+      }
+      world.describe_object.described = true;
+      out.write("On "); out.the(o); out.write(" ");
+      out.is_are_list(contents.map(c => out.a(c)));
+      out.write(".");
+    }
+  }
+});
+world.describe_object.add_method({
+  name: "switchable",
+  when: (o) => world.switchable(o),
+  handle: function (o) {
+    this.next();
+    if (world.describe_object.described) {
+      out.para();
+    }
+    world.describe_object.described = true;
+    out.We(o); out.write(" is currently switched ");
+    out.write(world.is_switched_on_msg(o)); out.write(".");
+  }
+});
+world.describe_object.add_method({
+  name: "default",
+  handle: function (o) {
+    this.next();
+    if (!world.describe_object.described) {
+      out.write("{Bobs} {see} nothing special about "); out.the(o); out.write(".");
+    }
+  }
+});
+
+//// describe_contents and describe_content
+
+def_activity("describe_content", {
+  doc: `Describe an object like in an inventory listing.  Assumes 'out' is currently in a list element (li or ol).`
+});
+world.describe_content.add_method({
+  name: "indefinite name",
+  handle: function (o) {
+    out.a(o);
+  }
+});
+world.describe_content.add_method({
+  name: "worn",
+  when: (o) => world.location.is_related(o, "worn_by"),
+  handle: function (o) {
+    this.next();
+    out.write_text(" (worn)");
+  }
+});
+world.describe_content.add_method({
+  name: "openable",
+  when: (o) => world.openable(o),
+  handle: function (o) {
+    this.next();
+    out.write_text(" (" + world.is_open_msg(o) + ")");
+  }
+});
+world.describe_content.add_method({
+  name: "container",
+  when: (o) => world.is_a(o, "container") && !world.is_opaque(o),
+  handle: function (o) {
+    this.next();
+    out.with_block("ul", () => {
+      world.contents(o).forEach(c => {
+        out.with_block("li", () => {
+          world.describe_content(c);
+        });
+      });
+    });
+  }
+});
+world.describe_content.add_method({
+  name: "supporter",
+  when: (o) => world.is_a(o, "supporter"),
+  handle: function (o) {
+    this.next();
+    out.with_block("ul", () => {
+      world.contents(o).forEach(c => {
+        out.with_block("li", () => {
+          world.describe_content(c);
+        });
+      });
+    });
+  }
+});
+
+def_activity("describe_contents", {
+  doc: `Describe all contents like an inventory listing.  Uses describe_content`
+});
+world.describe_contents.add_method({
+  name: "default",
+  handle: function (o) {
+    out.with_block("ul", () => {
+      world.contents(o).forEach(c => {
+        out.with_block("li", () => {
+          world.describe_content(c);
+        });
+      });
+    });
+  }
+});
+
+//// notable objects
+
+def_activity("get_notable_objects", {
+  doc: `Returns a list of objects that are notable in a description as {o,n} pairs,
+where n is a numeric value from 0 onward denoting notability. n=1 is default, and
+n=0 disables.  Repeats are fine.`
+});
+world.get_notable_objects.add_method({
+  name: "default",
+  handle: (o) => []
+});
+world.get_notable_objects.add_method({
+  name: "thing",
+  when: (o) => world.is_a(o, "thing"),
+  handle: function (o) {
+    /* things are just notable enough to be mentioned. */
+    var nobjs = this.next();
+    nobjs.push({o: o, n: 1});
+    return nobjs;
+  }
+});
+world.get_notable_objects.add_method({
+  name: "container",
+  when: (o) => world.is_a(o, "container"),
+  handle: function (o) {
+    var nobjs = this.next();
+    world.contents(o).forEach(c => {
+      if (world.visible_to(c, world.actor)) {
+        nobjs = nobjs.concat(world.get_notable_objects(c));
+      }
+    });
+    return nobjs;
+  }
+});
+world.get_notable_objects.add_method({
+  name: "supporter",
+  when: (o) => world.is_a(o, "supporter"),
+  handle: function (o) {
+    var nobjs = this.next();
+    world.contents(o).forEach(c => {
+      nobjs = nobjs.concat(world.get_notable_objects(c));
+    });
+    return nobjs;
+  }
+});
+world.get_notable_objects.add_method({
+  name: "not reported",
+  when: (o) => !world.reported(o),
+  handle: function (o) {
+    return [{o: o, n: 0}];
+  }
+});
+world.get_notable_objects.add_method({
+  name: "actor not reported",
+  when: (o) => o === world.actor,
+  handle: function (o) {
+    return [{o: o, n: 0}];
+  }
+});
+
+//// describe location
+
+def_activity("describe_current_location", {
+  doc: "Calls describe_location using the location and visible container of the current actor"
+});
+world.describe_current_location.add_method({
+  name: "default",
+  handle: function () {
+    var loc = world.location(world.actor);
+    if (!loc) {
+      out.write("{Bobs} {are} nowhere.");
+      return;
+    }
+    var vis_cont = world.visible_container(loc);
+    world.describe_location.current_location = vis_cont;
+    world.describe_location.current_described_location = vis_cont;
+    world.describe_location(loc, vis_cont);
+  }
+});
+
+def_activity("describe_location_heading", {
+  doc: "describe_location_heading(loc, vis_cont) gives the header for the location situated within the visible container"
+});
+world.describe_location_heading.add_method({
+  name: "default",
+  when: (loc, vis_cont) => loc === vis_cont,
+  handle: function (loc, vis_cont) {
+    world.describe_location.mentioned.add(loc);
+    out.with_inline("span", () => {
+      out.add_class("location_heading");
+      if (world.is_a(vis_cont, "thing")) {
+        // Create an examine link for things
+        out.The(vis_cont);
+      } else {
+        // Don't create a link for non-things.
+        out.write(world.definite_name(vis_cont));
+      }
+    });
+  }
+});
+world.describe_location_heading.add_method({
+  name: "default within vis_loc",
+  when: (loc, vis_cont) => loc !== vis_cont,
+  handle: function (loc, vis_cont) {
+    world.describe_location.mentioned.add(loc);
+    world.describe_location_heading(world.parent_enterable(loc), vis_cont);
+  }
+});
+world.describe_location_heading.add_method({
+  name: "container within vis_loc",
+  when: (loc, vis_cont) => world.is_a(loc, "container") && loc !== vis_cont,
+  handle: function (loc, vis_cont) {
+    world.describe_location.mentioned.add(loc);
+    world.describe_location_heading(world.parent_enterable(loc), vis_cont);
+    out.write(" (in "); out.the(loc); out.write(")");
+  }
+});
+world.describe_location_heading.add_method({
+  name: "supporter within vis_loc",
+  when: (loc, vis_cont) => world.is_a(loc, "supporter") && loc !== vis_cont,
+  handle: function (loc, vis_cont) {
+    world.describe_location.mentioned.add(loc);
+    world.describe_location_heading(world.parent_enterable(loc), vis_cont);
+    out.write(" (on "); out.the(loc); out.write(")");
+  }
+});
+
+def_activity("describe_location", {
+  doc: "describe_location(loc, vis_cont) describes the location situated within the visible container"
+});
+world.describe_location.add_method({
+  name: "initialize",
+  handle: function (loc, vis_cont) {
+//    world.describe_location.notables = [];
+    world.describe_location.mentioned = new Set;
+  }
+});
+world.describe_location.add_method({
+  name: "heading",
+  handle: function (loc, vis_cont) {
+    this.next();
+    world.describe_location.currently_lit = true;
+    world.describe_location_heading(loc, vis_cont);
+    out.para();
+  }
+});
+world.describe_location.add_method({
+  name: "description",
+  handle: function (loc, vis_cont) {
+    this.next();
+    var do_desc = true;
+    if (world.is_a(loc, "thing") && world.is_enterable(loc)) {
+      /* It's possible it makes more sense to walk up the location chain until we hit
+         a locale description, but I have no examples of this yet. */
+      var loc_desc = world.locale_description(loc);
+      if (loc_desc !== null) {
+        out.write(loc_desc);
+        do_desc = false;
+      }
+    }
+    if (do_desc && world.is_a(vis_cont, "room")) {
+      out.write(world.description(vis_cont));
+    }
+  }
+});
+world.describe_location.ascend_locations = true; // configuration
+world.describe_location.add_method({
+  name: "objects",
+  handle: function (loc, vis_cont) {
+    /* Prints descriptions of notable objects in the contents of the visible container. */
+    this.next();
+    var continue_ascending = true;
+    var mentioned = world.describe_location.mentioned;
+//    var notables = world.describe_location.notables;
+    var ascend_locations = world.describe_location.ascend_locations;
+    var curr_msgs = [];
+    while (continue_ascending) {
+      var raw_notables = [];
+      world.contents(loc).forEach(o => {
+        raw_notables = raw_notables.concat(world.get_notable_objects(o));
+      });
+      var to_ignore = raw_notables.filter(obj => obj.n === 0).map(obj => obj.o);
+      var filtered_notables = raw_notables.filter(obj => !to_ignore.includes(obj.o));
+      // Sort in reverse order of notability.
+      filtered_notables.sort((obj1, obj2) => obj2.n - obj1.n);
+      var notables = filtered_notables.map(obj => obj.o);
+
+      var unnotable_messages = [];
+      var current_location = null;
+      // The top level prints first, unless we don't ascend.
+      var is_first_sentence = (loc === vis_cont) || !ascend_locations;
+      var current_start = null;
+      var current_descs = [];
+      notables.forEach(o => {
+        if (mentioned.has(o))
+          return;
+        var msg = world.terse_obj_description(o, notables, mentioned);
+        mentioned.add(o);
+        if (!msg) // The object printed its own description.
+          return;
+        console.log(o);
+        let o_loc;
+        if (world.is_a(o, "door")) {
+          // Doors have no locations; we assume it's in the vis_cont.
+          o_loc = vis_cont;
+        } else {
+          o_loc = world.location(o);
+        }
+        if (o_loc !== current_location) {
+          if (current_descs.length) {
+            unnotable_messages.push({start: current_start, descs: current_descs});
+            current_descs.length = 0;
+          }
+          current_location = o_loc;
+          if (o_loc === vis_cont) {
+            if (is_first_sentence) {
+              current_start = "{Bobs} {see} ";
+              is_first_sentence = false;
+            } else {
+              current_start = "{Bobs} also {see} ";
+            }
+          } else if (world.is_a(o_loc, "container")) {
+            mentioned.add(o_loc);
+            if (is_first_sentence) {
+              current_start = () => {
+                out.write("In "); out.the(o_loc); out.write(" {bobs} {see} ");
+              };
+              is_first_sentence = false;
+            } else {
+              current_start = () => {
+                out.write("In "); out.the(o_loc); out.write(" {bobs} also {see} ");
+              };
+            }
+          } else if (world.is_a(o_loc, "supporter")) {
+            mentioned.add(o_loc);
+            if (is_first_sentence) {
+              current_start = () => {
+                out.write("On "); out.the(o_loc); out.write(" {bobs} {see} ");
+              };
+              is_first_sentence = false;
+            } else {
+              current_start = () => {
+                out.write("On "); out.the(o_loc); out.write(" {bobs} also {see} ");
+              };
+            }
+          } else {
+            throw new Error("Unknown kind of location for "+o_loc);
+          }
+        }
+        current_descs.push(msg);
+      });
+      if (current_descs.length) {
+        unnotable_messages.push({start: current_start, descs: current_descs});
+      }
+      if (unnotable_messages.length) {
+        let umsgs = unnotable_messages;
+        curr_msgs.unshift(() => {
+          umsgs.forEach(m => {
+            out.para();
+            out.write(m.start);
+            out.serial_comma(m.descs);
+            out.write(".");
+          });
+        });
+      }
+      if ((loc === vis_cont) || !ascend_locations) {
+        continue_ascending = false;
+      } else {
+        loc = world.location(loc);
+      }
+    }
+    if (curr_msgs.length) {
+      curr_msgs.forEach(m => {
+        out.para();
+        out.write(m);
+      });
+    }
+  }
+});
+world.describe_location.add_method({
+  name: "visit room",
+  when: (loc, vis_cont) => world.is_a(vis_cont, "room"),
+  handle: function (loc, vis_cont) {
+    this.next();
+    /* If the visible container is a room (and there's light) then we set it to being visited. */
+    world.visited.set(vis_cont, world.actor, true);
+  }
+});
+world.describe_location.add_method({
+  name: "darkness",
+  when: (loc, vis_cont) => !world.contains_light(vis_cont),
+  handle: function (loc, vis_cont) {
+    world.describe_location.currently_lit = true;
+    out.with_inline("span", () => {
+      out.add_class("location_heading");
+      out.write("Darkness");
+    });
+    out.write("[para]You can't see a thing; it's incredibly dark.");
   }
 });
