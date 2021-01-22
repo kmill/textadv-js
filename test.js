@@ -24,6 +24,7 @@ window.addEventListener("load", () => {
 
 def_obj("main room", "room", {
   name: "Main Room",
+//  makes_light: false,
   description: `This is a room, like many others, but what sets it apart is how it is the first one that comes to mind
 when you think of a "room."  Hence it's the main one.`
 });
@@ -52,7 +53,7 @@ def_obj("ball2", "thing", {
 def_obj("player", "person", {
   proper_named: false
 }, {
-  put_in: "main room"
+  put_on: "chair"
 });
 def_obj("coin", "thing", {
 }, {
@@ -67,7 +68,7 @@ def_obj("trinket", "thing", {
 def_obj("locket", "container", {
   name: "golden locket",
   openable: true,
-  is_open: true,
+//  is_open: true,
   description: "This is your precious golden locket that you carry wherever you go."
 }, {
   //  give_to: "player"
@@ -83,3 +84,16 @@ def_obj("Colleen", "person", {
   put_in: "main room"
 });
 //world.actor = "Colleen";
+def_obj("chair", "supporter", {
+  name: "leather armchair",
+  is_enterable: true,
+  description: "This leather armchair has seen some use."
+}, {
+  put_in: "main room"
+});
+def_obj("loose change", "thing", {
+  indefinite_name: "some loose change",
+  description: "Dimes, nickels, and quarters, but strangely no pennies."
+}, {
+  put_on: "chair"
+});
