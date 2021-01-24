@@ -93,6 +93,7 @@ def_obj("chair", "supporter", {
 });
 def_obj("loose change", "thing", {
   indefinite_name: "some loose change",
+  added_words: ["@dime", "@nickel"],
   description: "Dimes, nickels, and quarters, but strangely no pennies."
 }, {
   put_on: "chair"

@@ -643,7 +643,7 @@ world.indefinite_name.add_method({
     var printed_name = world.printed_name(x);
     if (world.proper_named(x)) {
       return printed_name;
-    } else if (printed_name.match(/^[aoiou]/i)) {
+    } else if (printed_name.match(/^[aeiou]/i)) {
       return "an " + printed_name;
     } else {
       return "a " + printed_name;
@@ -660,7 +660,7 @@ def_property("words", 1, {
 Words may be prefixed with @ to denote that they are nouns (and matching a noun
 gives higher priority to the disambiguator, but keep in mind that there is no match when
 an adjective comes after a noun: ["red", "@ball"] will match "red", "ball", and "red ball",
-but not "ball red").`
+but not "ball red").  All words should be lower case.`
 });
 
 def_property("added_words", 1, {
@@ -679,7 +679,7 @@ world.words.add_method({
     /* The default handler assumes that the words in `world.name(x)` are suitable
        for the object, and furthermore that the last word is a noun (so "big red ball"
        returns `["big", "red", "@ball"]`. */
-    var words = world.name(x).split(" ");
+    var words = world.name(x).toLowerCase().split(" ");
     words[words.length - 1] = "@" + words[words.length - 1];
     return words.concat(world.added_words(x));
   }
@@ -3232,9 +3232,9 @@ function require_iobj_held(verb, opts) {
 function hint_x_not_held(verb, name, f) {
   actions.verify.add_method({
     name: name,
-    when: (action) => action.verb === verb && world.location(f(action), "owned_by") !== world.actor,
+    when: (action) => action.verb === verb && world.location(f(action), "owned_by") === world.actor,
     handle: function (action) {
-      return verification.join(this.next(), very_logical_action());
+      return verification.join(this.next(), barely_logical_action());
     }
   });
 }
@@ -3246,6 +3246,456 @@ function hint_iobj_not_held(verb) {
   hint_x_not_held(verb, "hint_iobj_not_held(" + verb + ")",
                   (action) => action.iobj);
 }
+
+/*** Parser ***/
+
+/*
+The parser framework uses top-down parsing with caching.  The `def_parser` function
+defines a new cached nonterminal.  Parsers are iterators that yield `parser_match` objects.
+*/
+
+var parser = {
+  known_words: new Set,
+  /* for [something y] and [object id] commands in understand strings.  Each has
+     two methods: make_parser(args) and process(args, parse, match). */
+  frontend: {}
+};
+
+class parser_match {
+  constructor(start, end, value, score) {
+    this.start = start; // inclusive
+    this.end = end;     // exclusive
+    this.value = value; // the parsed value
+    this.score = score; // the match score
+  }
+}
+
+class token {
+  constructor(start, end, s) {
+    this.start = start; // start index in original string (inclusive)
+    this.end = end;     // end index in original string (exclusive)
+    this.s = s; // the tokenized version
+  }
+}
+
+/** Tokenize the input, yielding a list of `token` objects. */
+function tokenize(s) {
+  var i = 0;
+  var toks = [];
+  while (i < s.length) {
+    if (s.charCodeAt(i) <= 32) {
+      i++;
+      continue; // skip whitespace
+    }
+    var j = i;
+    while (j < s.length && s[j].match(/[a-z0-9']/i)) {
+      // a word is a combination of letters, numbers, and apostrophes (for contractions)
+      j++;
+    }
+    if (j === i) {
+      toks.push(new token(i, i+1, s[j]));
+      i++;
+    } else {
+      toks.push(new token(i, j, s.slice(i, j).toLowerCase()));
+      i = j;
+    }
+  }
+  return toks;
+}
+
+/** Define a new cached parser of a given name. */
+function def_parser(name) {
+  if (parser.name) {
+    console.warn(`Parser with name '${name}' already exists.`);
+  }
+  parser[name] = make_generic_function(name, {
+    doc :
+`The '${name}' parser. Takes in a cache, the original string, an array
+of tokens, and a starting index and returns an iterator of
+parser_match objects.`,
+    on_call: function* (cache, s, toks, i) {
+      /* Maintain a cache of parses. */
+      if (!cache[name]) {
+        cache[name] = new Map;
+      }
+      var c;
+      if (cache[name].has(i)) {
+        c = cache[name].get(i);
+        /* We use `c.length` since the array might be extended in the meantime in case there is
+           left recursion -- however left recursion isn't exactly supported... */
+        for (let i = 0; i < c.length; i++) {
+          yield c[i];
+        }
+      } else {
+        console.log(`running parser ${name} at ${i}`);
+        c = [];
+        cache[name].set(i, c);
+        for (let match of this.next()) {
+          c.push(match);
+          yield match;
+        }
+      }
+    }
+  });
+  parser[name].add_method({
+    name: "no match",
+    handle: function* (cache, s, toks, i) {
+      /* yield nothing.  this is a match failure. */
+    }
+  });
+  parser[name].understand = function (s, result=null) {
+    /* Given something like understand("take [something x]", (parse) => taking(parse.x)),
+       adds a new method to the parser for parsing the exact words outside the brackets and using
+       the `parser.frontend` definitions for the things in the square brackets.  The `result` can
+       either return a parser_match, which is left as-is, or otherwise the parser_match is
+       constructed whose score is the sum of the scores. Slashes can be used for alternation,
+       for example "go/get in/into [somewhere x]". */
+
+    // first parse the text to understand what to understand
+    var toks = [];
+    var i = 0;
+    while (i < s.length) {
+      if (s.charCodeAt(i) <= 32) {
+        i++;
+        continue; // skip whitespace
+      }
+      var j = i;
+      while (j < s.length && s[j].match(/[a-z0-9']/i)) {
+        // a word is a combination of letters, numbers, and apostrophes (for contractions)
+        j++;
+      }
+      if (j === i && s[i] === "[") {
+        i++;
+        var parts = [];
+        while (i < s.length && s[i] !== "]") {
+          if (s.charCodeAt(i) <= 32) {
+            i++;
+            continue;
+          } else if (s[i] === "'" || s[i] === "'") {
+            let q = s[i];
+            j = ++i;
+            while (j < s.length && s[j] !== q) {
+              j++;
+            }
+            if (s[j] !== q) {
+              throw new TypeError("unmatched quote");
+            }
+            parts.push(s.slice(i, j));
+            i = j + 1;
+          } else {
+            j = i;
+            while (j < s.length && s.charCodeAt(j) > 32 && s[j] !== "]") {
+              j++;
+            }
+            parts.push(s.slice(i, j));
+            i = j;
+          }
+        }
+        if (s[i] !== "]") {
+          throw new TypeError("missing close ]");
+        }
+        i++;
+        if (parts.length === 0) {
+          throw new TypeError("Expecting text inside '[' and ']'");
+        }
+        toks.push({cmd: parts[0], args: parts.slice(1)});
+      } else if (j === i) {
+        toks.push(s[i]);
+        i++;
+      } else {
+        toks.push(s.slice(i, j).toLowerCase());
+        i = j;
+      }
+    }
+    // Assemble the tokens into a parser
+    i = 0;
+    var parsers = [];
+    var frontend = [];
+    while (i < toks.length) {
+      if (typeof toks[i] === "string") {
+        if (toks[i] === "/") {
+          throw new TypeError("Unexpected '/'");
+        }
+        var alts = [make_parse_word(toks[i])];
+        i++;
+        while (i < toks.length && toks[i] === "/") {
+          i++;
+          if (i === toks.length) {
+            throw new TypeError("Expecting something after '/'");
+          }
+          if (toks[i] === "/") {
+            throw new TypeError("Unexpected '/'");
+          }
+          if (typeof toks[i] !== "string") {
+            throw new TypeError("Expecting a word after '/'");
+          }
+          alts.push(make_parse_word(toks[i]));
+          i++;
+        }
+        parsers.push(make_parse_alt(alts));
+      } else {
+        var fe = parser.frontend[toks[i].cmd];
+        if (!fe) {
+          throw new Error(`No such frontend '${toks[i].cmd}'`);
+        }
+        parsers.push(fe.make_parser(toks[i].args));
+        frontend.push({idx: parsers.length-1, frontend: fe, args: toks[i].args});
+        i++;
+      }
+    }
+    parser[name].add_method({
+      name: s,
+      handle: function* (cache, s, toks, i) {
+        yield* this.next();
+        for (var m of make_parse_seq(parsers)(cache, s, toks, i)) {
+          var parse = {};
+          frontend.forEach(fe => {
+            fe.frontend.process(fe.args, parse, m.value[fe.idx]);
+          });
+          var v;
+          if (result) {
+            v = result(parse);
+            if (!(v instanceof parser_match)) {
+              v = new parser_match(m.start, m.end, v, m.score);
+            }
+          } else {
+            v = new parser_match(m.start, m.end, parse, m.score);
+          }
+          yield v;
+        }
+      }
+    });
+  };
+}
+
+/** For every object of the given kind, extract the `words` to build
+    maps from words to objects. */
+parser.ensure_dict = function (cache, kind) {
+  if (!cache.dict) {
+    cache.dict = {};
+  }
+  if (cache.dict[kind]) {
+    return;
+  }
+  console.log("generating dict for " + kind);
+  var nouns = new Map;
+  var adjs = new Map;
+  function add(m, word, o) {
+    if (m.has(word)) {
+      m.get(word).add(o);
+    } else {
+      m.set(word, new Set([o]));
+    }
+    parser.known_words.add(word);
+  }
+  world.all_of_kind(kind).forEach(o => {
+    world.words(o).forEach(word => {
+      var list;
+      if (word[0] === '@') {
+        add(nouns, word.slice(1), o);
+      } else {
+        add(adjs, word, o);
+      }
+    });
+  });
+  cache.dict[kind] = {
+    nouns: nouns,
+    adjs: adjs
+  };
+};
+
+/** Create a parser that always succeeds, yielding the value of null. */
+function make_parse_nothing() {
+  return function* (cache, s, toks, i) {
+    yield new parser_match(i, i, null, 0);
+  };
+}
+/** Create a parser that matches the end of the tokens list. */
+function make_parse_end() {
+  return function* (cache, s, toks, i) {
+    if (i === toks.length) {
+      yield new parser_match(i, i, null, 0);
+    }
+  };
+}
+/** Create a parser that tries to match a given token word. */
+function make_parse_word(word, score=0) {
+  return function* (cache, s, toks, i) {
+    if (i < toks.length && toks[i].s === word) {
+      yield new parser_match(i, i+1, word, score);
+    }
+  };
+}
+/** Gives the union of all the given parsers. */
+function make_parse_alt(parsers) {
+  if (parsers.length === 0) {
+    return parsers[0];
+  }
+  return function* (cache, s, toks, i) {
+    for (var k = 0; k < parsers.length; k++) {
+      yield* parsers[k](cache, s, toks, i);
+    }
+  };
+}
+/** Concatenate the parsers so they try to match in sequence.
+Matches are arrays of the raw match objects. */
+function make_parse_seq(parsers) {
+  function mk(k) {
+    if (k === 0) {
+      return function* (cache, s, toks, i) {
+        yield new parser_match(i, i, [], 0);
+      };
+    } else {
+      return function* (cache, s, toks, i) {
+        for (var mp of mk(k - 1)(cache, s, toks, i)) {
+          for (var m of parsers[k - 1](cache, s, toks, mp.end)) {
+            yield new parser_match(mp.start, m.end, mp.value.concat([m]), mp.score + m.score);
+          }
+        }
+      };
+    }
+  }
+  return mk(parsers.length);
+}
+
+parser.articles = new Set(["a", "an", "the", "some"]);
+parser.articles.forEach(a => parser.known_words.add(a));
+
+function* parse_thing(cache, s, toks, i) {
+  parser.ensure_dict(cache, "thing");
+  var j = i;
+  if (j < toks.length && parser.articles.has(toks[j].s)) {
+    j++;
+  }
+  function inter(a, b) {
+    // null represents the universal set
+    if (a === null)
+      return b;
+    else if (b === null)
+      return a;
+    else
+      return new Set([...a].filter(x => b.has(x))); // apparently this is the idiom?
+  }
+  function ok(s) { return s === null || s.size > 0; }
+  function* in_adj(i, objs) {
+    if (i < toks.length) {
+      var objs_i = cache.dict.thing.adjs.get(toks[i].s);
+      if (objs_i) {
+        objs = inter(objs, objs_i);
+        if (ok(objs)) {
+          for (var m of in_adj(i + 1, objs)) {
+            yield new parser_match(i, m.end, m.value, m.score + 0.5);
+          }
+        }
+      }
+    }
+    yield* in_noun(i, objs);
+  }
+  function* in_noun(i, objs) {
+    if (i < toks.length) {
+      var objs_i = cache.dict.thing.nouns.get(toks[i].s);
+      if (objs_i) {
+        objs = inter(objs, objs_i);
+        if (ok(objs)) {
+          for (var m of in_noun(i + 1, objs)) {
+            yield new parser_match(i, m.end, m.value, m.score + 1.0);
+          }
+        }
+      }
+    }
+    if (objs !== null) {
+      for (var o of objs) {
+        yield new parser_match(i, i, o, 0.0);
+      }
+    }
+  }
+  // Get the best matches for each possible object
+  var matches = new Map;
+  for (var m of in_adj(j, null)) {
+    var mscore = m.score;
+    if (toks.slice(m.start, m.end).map(t => t.s).join(" ") === world.name(m.value).toLowerCase()) {
+      // exact match, bonus half point
+      mscore += 0.5;
+    }
+    if (!matches.has(m.value) || matches.get(m.value).score < mscore) {
+      matches.set(m.value, new parser_match(i, m.end, m.value, mscore));
+    }
+  }
+  yield* matches.values();
+}
+
+def_parser("anything", {
+  doc: "Parse a thing that in the world, even if it is not visible to the actor (c.f. 'something')"
+});
+parser.frontend.anything = {
+  make_parser([v]) {
+    return parser.anything;
+  },
+  process([v], parse, match) {
+    parse[v] = match.value;
+  }
+};
+parser.anything.add_method({
+  name: "main parser",
+  handle: function* (cache, s, toks, i) {
+    yield* this.next();
+    yield* parse_thing(cache, s, toks, i);
+  }
+});
+
+def_parser("something", {
+  doc: `Parse a thing that is visible to the actor in the world.  Filters the 'anything' parser,
+so if it is almost certainly better to extend that parser instead of this one.`
+});
+parser.frontend.something = {
+  make_parser([v]) {
+    return parser.something;
+  },
+  process([v], parse, match) {
+    parse[v] = match.value;
+  }
+};
+parser.something.add_method({
+  name: "main parser",
+  handle: function* (cache, s, toks, i) {
+    yield* this.next();
+    for (var m of parser.anything(cache, s, toks, i)) {
+      if (world.visible_to(m.value, world.actor)) {
+        yield m;
+      }
+    }
+  }
+});
+
+/* Parse a specific object. */
+parser.frontend.obj = {
+  make_parser([x]) {
+    return function* (cache, s, toks, i) {
+      for (var m of parser.something(cache, s, toks, i)) {
+        if (m.value === x) {
+          // Give a small score bonus
+          yield new parser_match(m.start, m.end, m.value, m.score + 0.5);
+        }
+      }
+    };
+  },
+  process([x], parse, match) {
+    // nothing to process
+  }
+};
+
+def_parser("action", {
+  doc: "The main parser for actions"
+});
+parser.frontend.action = {
+  make_parser([v]) {
+    return parser.action;
+  },
+  process([v], parse, match) {
+    parse[v] = match.value;
+  }
+};
+
 
 /*** Basic actions ***/
 
@@ -3387,6 +3837,8 @@ function examining(x) {
 }
 def_verb("examining", "examine", "examining");
 
+parser.action.understand("examine/x/read/inspect [something x]", (parse) => examining(parse.x));
+
 require_dobj_visible("examining");
 
 /* This is carry_out and not report since the whole point of examining something is the text output. */
@@ -3404,6 +3856,15 @@ def_verb("taking", "take", "taking");
 
 require_dobj_accessible("taking");
 hint_dobj_not_held("taking");
+
+actions.verify.add_method({
+  name: "not too reasonable taking things fixed in place",
+  when: (action) => action.verb === "taking" && world.fixed_in_place(action.dobj),
+  handle: function (action) {
+    return verification.join(this.next(),
+                             barely_logical_action());
+  }
+});
 
 actions.before.add_method({
   name: "can't take contents of actor",
@@ -3484,5 +3945,40 @@ actions.report.add_method({
   when: (action) => action.verb === "taking",
   handle: function (action) {
     out.write("Taken.");
+  }
+});
+
+//// Dropping
+
+function dropping(x) {
+  return {verb: "dropping", dobj: x};
+}
+def_verb("dropping", "drop", "dropping");
+
+require_dobj_held("dropping", {only_hint: true, transitive: true});
+
+actions.before.add_method({
+  when: (action) => action.verb === "dropping" && action.dobj === world.actor,
+  handle: function (action) {
+    throw new abort_action("{Bobs} {can't} be dropped.");
+  }
+});
+
+actions.carry_out.add_method({
+  when: (action) => action.verb === "dropping",
+  handle: function (action) {
+    var loc = world.location(world.actor);
+    if (world.is_a(loc, "supporter")) {
+      world.put_on(action.dobj, loc);
+    } else {
+      world.put_in(action.dobj, loc);
+    }
+  }
+});
+
+actions.report.add_method({
+  when: (action) => action.verb === "dropping",
+  handle: function (action) {
+    out.write("Dropped.");
   }
 });
