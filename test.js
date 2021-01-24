@@ -1,6 +1,7 @@
 window.addEventListener("load", () => {
   init_output("output");
-
+  start_game_loop();
+  return;
   out.write_text("Welcome! ");
   out.wrap_action_link("do foo", () => {
     out.write_text("click to foo");
@@ -44,6 +45,12 @@ def_obj("ball", "thing", {
   put_in: "main room"
 });
 
+def_obj("ball3", "thing", {
+  name: "small yellow ball"
+}, {
+  put_in: "main room"
+});
+
 def_obj("ball2", "thing", {
   name: "green ball"
 }, {
@@ -51,7 +58,9 @@ def_obj("ball2", "thing", {
 });
 
 def_obj("player", "person", {
-  proper_named: false
+  proper_named: false,
+  words: ["@player", "@yourself", "@self", "@me"],
+  description: "You're figuring stuff out."
 }, {
   put_on: "chair"
 });
@@ -86,6 +95,7 @@ def_obj("Colleen", "person", {
 //world.actor = "Colleen";
 def_obj("chair", "supporter", {
   name: "leather armchair",
+  added_words: ["@chair"],
   is_enterable: true,
   description: "This leather armchair has seen some use."
 }, {

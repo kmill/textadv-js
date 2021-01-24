@@ -3,9 +3,26 @@
   <head>
     <link rel="stylesheet" href="style.css">
     <script type="text/javascript" src="textadv.js"></script>
+    <script type="text/javascript" src="textadv-ui.js"></script>
     <script type="text/javascript" src="test.js"></script>
   </head>
   <body>
-    <div id="output"></div>
+    <div id="main">
+      <div id="output"></div>
+      <div class="block_floats"></div>
+      <div class="user_response">
+        &gt;
+        <form id="commandform" action="javascript:enter_command()" method="" autocomplete="off">
+          <input type="text" id="command" name="command" size="100" />
+        </form>
+      </div>
+
+      <div id="examples">
+        Example actions:
+              <a href="" onclick="return run_action('look');">look</a>
+              <a href="" onclick="return run_action('inventory');">inventory</a>
+              <a href="" onclick="return run_action('help');">help</a>
+      </div>
+    </div>
   </body>
 </html>

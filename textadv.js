@@ -576,6 +576,9 @@ function def_obj(name, kind, props, activities) {
         handle: val
       });
     } else {
+      if (!world[key]) {
+        throw new TypeError("No such property named " + key);
+      }
       world[key].set(name, props[key]);
     }
   }
@@ -1755,6 +1758,7 @@ world.no_switch_msg.add_method({
 
 /** The out variable contains the current HTML output object. It is the "standard out" for the game. */
 var out;
+var suppress_action_links = false;
 
 /** String utility functions */
 var str_util = {};
@@ -1828,13 +1832,14 @@ class HTML_abstract_builder {
   }
   
   wrap_action_link(action, f) {
-    out.enter_inline("a");
-    out.attr("href", "");
-    out.add_class("action");
-    out.on("click", (e) => {
-      e.preventDefault();
-      console.log("clicked! for action: " + action);
-    });
+    if (suppress_action_links) {
+      out.enter_inline("span");
+    } else {
+      out.enter_inline("a");
+      out.attr("href", "");
+      out.add_class("action");
+      out.attr("data-action", action);
+    }
     try {
       f();
     } finally {
@@ -1843,6 +1848,15 @@ class HTML_abstract_builder {
   }
   wrap_examine(o, f) {
     out.wrap_action_link("examine " + world.name(o), f);
+  }
+
+  without_action_links(f) {
+    suppress_action_links = true;
+    try {
+      f();
+    } finally {
+      suppress_action_links = false;
+    }
   }
 
   ob(o, text) {
@@ -2405,7 +2419,7 @@ world.describe_object.add_method({
       }
       world.describe_object.described = true;
       out.write("On "); out.the(o); out.write(" ");
-      out.is_are_list(contents.map(c => out.a(c)));
+      out.is_are_list(contents.map(c => () => out.a(c)));
       out.write(".");
     }
   }
@@ -3181,12 +3195,12 @@ function require_x_held(verb, name, f, {only_hint=false, transitive=true}={}) {
         this.next();
         /* A check that the actor is holding the object (possibly transitively). */
         if (world.location(f(action), "worn_by") === world.actor) {
-          throw abort_action(() => { out.write("{Bobs} {are} wearing ");
-                                     out.the(f(action)); out.write("."); });
+          throw new abort_action(() => { out.write("{Bobs} {are} wearing ");
+                                         out.the(f(action)); out.write("."); });
         }
         if (!is_held(f(action))) {
-          throw abort_action(() => { out.write("{Bobs} {aren't} holding ");
-                                     out.the(f(action)); out.write("."); });
+          throw new abort_action(() => { out.write("{Bobs} {aren't} holding ");
+                                         out.the(f(action)); out.write("."); });
         }
       }
     });
@@ -3198,8 +3212,8 @@ function require_x_held(verb, name, f, {only_hint=false, transitive=true}={}) {
         this.next();
         /* An attempt is made to take the object if the actor is not already holding it. */
         if (world.location(f(action), "worn_by") === world.actor) {
-          throw abort_action(() => { out.write("{Bobs} {are} wearing ");
-                                     out.the(f(action)); out.write("."); });
+          throw new abort_action(() => { out.write("{Bobs} {are} wearing ");
+                                         out.the(f(action)); out.write("."); });
         }
         if (!is_held(f(action))) {
           actions.do_first(make_action("take", f(action)), {silently: true});
@@ -3504,6 +3518,11 @@ parser.ensure_dict = function (cache, kind) {
   };
 };
 
+parser.init_known_words = function () {
+  parser.ensure_dict({}, "thing");
+  parser.ensure_dict({}, "room");
+};
+
 /** Create a parser that always succeeds, yielding the value of null. */
 function make_parse_nothing() {
   return function* (cache, s, toks, i) {
@@ -3520,6 +3539,7 @@ function make_parse_end() {
 }
 /** Create a parser that tries to match a given token word. */
 function make_parse_word(word, score=0) {
+  parser.known_words.add(word);
   return function* (cache, s, toks, i) {
     if (i < toks.length && toks[i].s === word) {
       yield new parser_match(i, i+1, word, score);
@@ -3584,7 +3604,7 @@ function* parse_thing(cache, s, toks, i) {
         objs = inter(objs, objs_i);
         if (ok(objs)) {
           for (var m of in_adj(i + 1, objs)) {
-            yield new parser_match(i, m.end, m.value, m.score + 0.5);
+            yield new parser_match(i, m.end, m.value, m.score + 1);
           }
         }
       }
@@ -3598,14 +3618,14 @@ function* parse_thing(cache, s, toks, i) {
         objs = inter(objs, objs_i);
         if (ok(objs)) {
           for (var m of in_noun(i + 1, objs)) {
-            yield new parser_match(i, m.end, m.value, m.score + 1.0);
+            yield new parser_match(i, m.end, m.value, m.score + 2);
           }
         }
       }
     }
     if (objs !== null) {
       for (var o of objs) {
-        yield new parser_match(i, i, o, 0.0);
+        yield new parser_match(i, i, o, 0);
       }
     }
   }
@@ -3614,8 +3634,8 @@ function* parse_thing(cache, s, toks, i) {
   for (var m of in_adj(j, null)) {
     var mscore = m.score;
     if (toks.slice(m.start, m.end).map(t => t.s).join(" ") === world.name(m.value).toLowerCase()) {
-      // exact match, bonus half point
-      mscore += 0.5;
+      // exact match, bonus point
+      mscore += 1;
     }
     if (!matches.has(m.value) || matches.get(m.value).score < mscore) {
       matches.set(m.value, new parser_match(i, m.end, m.value, mscore));
@@ -3674,7 +3694,7 @@ parser.frontend.obj = {
       for (var m of parser.something(cache, s, toks, i)) {
         if (m.value === x) {
           // Give a small score bonus
-          yield new parser_match(m.start, m.end, m.value, m.score + 0.5);
+          yield new parser_match(m.start, m.end, m.value, m.score + 1);
         }
       }
     };
@@ -3683,6 +3703,30 @@ parser.frontend.obj = {
     // nothing to process
   }
 };
+
+def_parser("direction", {
+  doc: "The parser for directions"
+});
+parser.frontend.direction = {
+  make_parser([v]) {
+    return parser.direction;
+  },
+  process([v], parse, match) {
+    parse[v] = match.value;
+  }
+};
+parser.direction.understand("north/n", (parse) => "north");
+parser.direction.understand("south/s", (parse) => "south");
+parser.direction.understand("east/e", (parse) => "east");
+parser.direction.understand("west/w", (parse) => "west");
+parser.direction.understand("northwest/nw", (parse) => "northwest");
+parser.direction.understand("southwest/sw", (parse) => "southwest");
+parser.direction.understand("northeast/ne", (parse) => "northeast");
+parser.direction.understand("southeast/se", (parse) => "southeast");
+parser.direction.understand("up/u", (parse) => "up");
+parser.direction.understand("down/d", (parse) => "down");
+parser.direction.understand("in", (parse) => "in");
+parser.direction.understand("out", (parse) => "out");
 
 def_parser("action", {
   doc: "The main parser for actions"
@@ -3695,6 +3739,193 @@ parser.frontend.action = {
     parse[v] = match.value;
   }
 };
+
+def_parser("command", {
+  doc: "The parser for complete commands"
+});
+parser.command.add_method({
+  name: "action",
+  handle: function* (cache, s, toks, i) {
+    yield* this.next();
+    for (var m of parser.action(cache, s, toks, i)) {
+      if (m.end === toks.length || (m.end === toks.length && toks[toks.length - 1].s === ".")) {
+        yield m;
+      }
+    }
+  }
+});
+
+/*** Main game loop ***/
+
+var game_listeners = new Map;
+game_listeners.set("input", []);
+function add_game_listener(name, f) {
+  game_listeners.get(name).push(f);
+}
+function game_listeners_notify(name, ...args) {
+  game_listeners.get(name).forEach(f => f(...args));
+}
+
+function* game_loop() {
+  parser.init_known_words();
+  out.para();
+  world.describe_current_location();
+  var try_input = false;
+  var input;
+  main:
+  while (1) {
+    out.para();
+    if (try_input) {
+      // A flag that the input variable is still good.
+      try_input = false;
+    } else {
+      input = yield {cmd: "input"};
+    }
+    var toks = tokenize(input);
+    if (toks.length === 0) {
+      continue main;
+    }
+    var matches = Array.from(parser.command({}, input, toks, 0));
+    if (matches.length === 0) {
+      // Maybe we didn't know one of the words
+      for (let i = 0; i < toks.length; i++) {
+        if (!parser.known_words.has(toks[i].s)) {
+          let w = input.slice(toks[i].start, toks[i].end);
+          if (w === ".") {
+            out.write_text("[I don't know how to handle multiple sentences at once.]");
+            continue main;
+          } else {
+            out.write_text(`[I don't know what you mean by '${w}'.]`);
+            continue main;
+          }
+        }
+      }
+      out.write_text("[I don't understand what you mean.]");
+      continue main;
+    }
+    var action, disambiguated;
+    if (matches.length === 1) {
+      action = matches[0].value;
+      disambiguated = false;
+    } else {
+      // Need to disambiguate
+
+      if (false) {
+        out.write_text("[Ambiguous!]");
+        matches.forEach(m => {
+          out.para();
+          actions.write_gerund_form(m.value);
+          out.write_text(` (score: ${m.score})`);
+        });
+      }
+
+      // Ask verifier
+      var verified = matches.map(m => ({match: m, verification: actions.verify(m.value)}));
+      // We remove the things that are illogical due to invisibility.
+      verified = verified.filter(v => !v.verification.not_visible);
+      // Sort by verification score in increasing order.
+      verified.sort((v1, v2) => v1.verification.score - v2.verification.score);
+
+      if (verified.length === 0) {
+        // This leaks some information that it parsed, but it seems like the least we could do.
+        out.write("{Bobs} {can} see no such thing.");
+        continue main;
+      }
+
+      if (verified.every(v => !v.verification.is_reasonable())) {
+        // Go for the worst one unreasonable action then.
+        action = verified[0].match.value;
+        disambiguated = true;
+      } else {
+        // Good, there is an acceptible action.
+        verified = verified.filter(v => v.verification.is_reasonable());
+        disambiguated = verified.length > 1;
+        var best_score = verified[verified.length - 1].verification.score;
+        var best_matches = verified.filter(v => v.verification.score === best_score).map(v => v.match);
+        if (best_matches.length === 1) {
+          action = best_matches[0].value;
+        } else {
+          // Sort by match scores in descending order
+          best_matches.sort((m1, m2) => m2.score - m1.score);
+          best_score = best_matches[0].score;
+          // Remove everything but the best scores
+          best_matches = best_matches.filter(m => m.score === best_score);
+          if (best_matches.length === 1) {
+            // Specificity scores disambiguated
+            action = best_matches[0].value;
+            disambiguated = true;
+          } else {
+            // Need user help to disambiguate.
+            var best_actions = best_matches.map(m => m.value);
+            if (best_actions.length > 6) {
+              // This seems like a horrible mistake happened, so let's not try.
+              out.write("[Your input was surprisingly ambiguous.]");
+              continue main;
+            }
+            function cmp_str(s1, s2) { if (s1 < s2) return -1; else if (s1 > s2) return 1; else return 0; }
+            best_actions.sort((a1, a2) => cmp_str(a1.verb, a2.verb));
+            out.write("Which of the following did you mean?");
+            out.with_block("ol", () => {
+              for (var i = 0; i < best_actions.length; i++) {
+                out.with_block("li", () => {
+                  out.wrap_action_link('' + (i + 1), () => {
+                    out.without_action_links(() => {
+                      actions.write_infinitive_form(best_actions[i]);
+                    });
+                  });
+                });
+              }
+            });
+            // Wait for response
+            input = yield {cmd: "input"};
+            let num = (+input) - 1;
+            if (!isNaN(num) && 0 <= num && num < best_actions.length) {
+              action = best_actions[num];
+            } else {
+              try_input = true;
+              continue main;
+            }
+          }
+        }
+      }
+    }
+
+    try {
+      actions.run(action, {write_action: disambiguated});
+    } catch (x) {
+      if (x instanceof abort_action) {
+        if (x.reason) {
+          out.para();
+          out.write(x.reason);
+          continue main;
+        }
+      } else {
+        out.para();
+        out.write_text("[Internal error]");
+        throw x;
+      }
+    }
+  }
+}
+
+function game_continue(f, /*opt*/val) {
+  var v = f.next(val);
+  if (v.done) {
+    console.log("game is over.");
+    return;
+  }
+  switch (v.value.cmd) {
+  case "input":
+    game_listeners_notify("input", (input) => {
+      game_continue(f, input);
+    });
+    break;
+  }
+}
+
+function start_game_loop() {
+  game_continue(game_loop());
+}
 
 
 /*** Basic actions ***/
@@ -3721,9 +3952,14 @@ function all_are_mistakes(mistakes, reason) {
     throw new TypeError("The mistakes must be an array of parser patterns");
   }
   mistakes.forEach(m => {
-    parser.understand(m, (parse) => making_mistake(reason));
+    parser.action.understand(m, (parse) => making_mistake(reason));
   });
 }
+
+all_are_mistakes(["turn around/left/right/backward/backwards",
+                  "look backwards/left/right"],
+                 (parse) => making_mistake(`{Bobs} {aren't} facing any particular
+direction, so turning around makes no sense.`));
 
 //// Help
 
@@ -3733,12 +3969,13 @@ function getting_help() {
 }
 def_verb("help", "get help", "getting help");
 
+parser.action.understand("help", (parse) => getting_help());
+
 actions.carry_out.add_method({
   when: (action) => action.verb === "help",
   handle: function (action) {
-    out.write(`(You want some help?
-
-[para]You are controlling a character in a virtual world.  To
+    out.write_text("[");
+    out.write(`You are controlling a character in a virtual world.  To
 play the game, you must give the character commands to interact
 with their surroundings.
 
@@ -3775,7 +4012,8 @@ vital clues are left in descriptions (this being a text-based game).
 
 [para]For more help, take a look at
 [enter_inline a][attr href 'http://eblong.com/zarf/if.html'][attr target '_blank']http://eblong.com/zarf/if.html[leave]
-for a reference card of perhaps-possible things to try.)`);
+for a reference card of perhaps-possible things to try.`);
+    out.write_text("]");
   }
 });
 
@@ -3785,6 +4023,9 @@ function looking() {
   return {verb: "looking"};
 }
 def_verb("looking", "look", "looking");
+
+parser.action.understand("look/l/ls", (parse) => looking());
+parser.action.understand("look around", (parse) => looking());
 
 actions.carry_out.add_method({
   when: (action) => action.verb === "looking",
@@ -3805,6 +4046,8 @@ actions.write_infinitive_form.add_method({
   handle: (action) => out.write("look " + action.dir)
 });
 
+parser.action.understand("look/l [direction d]", (parse) => looking_toward(parse.d));
+
 actions.carry_out.add_method({
   when: (action) => action.verb === "looking toward",
   handle: (action) => world.describe_direction(action.dir)
@@ -3816,6 +4059,8 @@ function taking_inventory() {
   return {verb: "taking inventory"};
 }
 def_verb("taking inventory", "take inventory", "taking inventory");
+
+parser.action.understand("inventory/i", (parse) => taking_inventory());
 
 /* This is carry_out and not report since the whole point of inventory is the text output. */
 actions.carry_out.add_method({
@@ -3838,6 +4083,12 @@ function examining(x) {
 def_verb("examining", "examine", "examining");
 
 parser.action.understand("examine/x/read/inspect [something x]", (parse) => examining(parse.x));
+parser.action.understand("look at/inside/in/toward [something x]", (parse) => examining(parse.x));
+// This might cause problems for the disambiguator:
+parser.action.understand("look [something x]", (parse) => examining(parse.x));
+
+all_are_mistakes(["examine/x/read/inspect", "look at/inside"],
+                 `{Bobs} {need} to be examining something in particular.`);
 
 require_dobj_visible("examining");
 
@@ -3853,6 +4104,13 @@ function taking(x) {
   return {verb: "taking", dobj: x};
 }
 def_verb("taking", "take", "taking");
+
+parser.action.understand("take/get/pickup [something x]", (parse) => taking(parse.x));
+parser.action.understand("pick up [something x]", (parse) => taking(parse.x));
+parser.action.understand("pick [something x] up", (parse) => taking(parse.x));
+
+all_are_mistakes(["take/get/pickup/pick", "pick up"],
+                 `{Bobs} {need} to be taking something in particular.`);
 
 require_dobj_accessible("taking");
 hint_dobj_not_held("taking");
@@ -3901,7 +4159,7 @@ actions.before.add_method({
   when: (action) => action.verb === "taking" && world.is_a(action.dobj, "person"),
   handle: function (action) {
     out.The(action.dobj); out.write(" doesn't look like ");
-    out.we(action.dobj); action.write("'d appreciate that.");
+    out.write_text(world.subject_pronoun(action.dobj)); out.write("'d appreciate that.");
     throw new abort_action();
   }
 });
@@ -3954,6 +4212,13 @@ function dropping(x) {
   return {verb: "dropping", dobj: x};
 }
 def_verb("dropping", "drop", "dropping");
+
+parser.action.understand("drop [something x]", (parse) => dropping(parse.x));
+parser.action.understand("put/set down [something x]", (parse) => dropping(parse.x));
+parser.action.understand("put/set [something x] down", (parse) => dropping(parse.x));
+
+all_are_mistakes(["drop/set", "put/set down"],
+                 `{Bobs} {need} to be dropping something in particular.`);
 
 require_dobj_held("dropping", {only_hint: true, transitive: true});
 
