@@ -4123,7 +4123,7 @@ function* game_loop() {
         }
       } else {
         out.para();
-        out.write_text("[Internal error. Proceed at your own risk.]");
+        out.write_text("[Internal error. Stack trace in console. Proceed at your own risk.]");
         console.error(x, x.stack);
         continue main;
       }
@@ -4133,7 +4133,13 @@ function* game_loop() {
 }
 
 function game_continue(f, /*opt*/val) {
-  var v = f.next(val);
+  try {
+    var v = f.next(val);
+  } catch (x) {
+    out.para();
+    out.write_text("[Internal error. Stack trace in console.]");
+    throw x;
+  }
   if (v.done) {
     console.log("game is over.");
     return;
