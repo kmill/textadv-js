@@ -88,6 +88,12 @@ def_obj("restroom door", "door", {
   description: "A black door with a sign indicating it's for a single-occupancy restroom."
 });
 
+def_obj("doorbell", "thing", {
+  added_words: ["door", "@bell"],
+  is_scenery: true,
+  description: `It's a doorbell for who knows what.`
+}, {put_in: "Lobby"});
+
 def_obj("toilet", "thing", {
   description: "A porcelain toilet, ready for use."
 }, {put_in: "Lobby Restroom"});
