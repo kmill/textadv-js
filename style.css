@@ -48,6 +48,9 @@ div.block_floats {
     height: 1px;
     margin: 0 0 -1px 0;
 }
+p.user_input {
+    clear: both;
+}
 #headline {
     width: 610px;
     color: #fff;

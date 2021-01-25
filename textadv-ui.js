@@ -39,9 +39,10 @@ function enter_command() {
 var run_action_callback = null;
 function run_action(command) {
   history_add(command);
-  out.para();
-  out.write_text("> " + command);
-  out.para();
+  out.with_block("p", () => {
+    out.add_class("user_input");
+    out.write_text("> " + command);
+  });
   document.getElementById("command").value = "";
   var callback = run_action_callback;
   run_action_callback = null;
