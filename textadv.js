@@ -3054,9 +3054,9 @@ function illogical_not_visible(reason) {
 }
 
 actions.verify.add_method({
-  name: "default is that the action is logical.",
+  name: "default is that the action is barely logical.",
   handle: function (action) {
-    return logical_action();
+    return barely_logical_action();
   }
 });
 actions.try_before.add_method({
@@ -3223,6 +3223,10 @@ function require_x_held(verb, name, f, {only_hint=false, transitive=true}={}) {
         } else {
           reason = illogical_action("{Bobs} {can't} get to that.");
         }
+      } else if (world.fixed_in_place(f(action))) {
+        reason = barely_logical_action();
+      } else if (world.accessible_to(f(action), world.actor)) {
+        reason = logical_action();
       }
       if (reason) {
         return verification.join(this.next(), reason);
@@ -4500,6 +4504,21 @@ actions.verify.add_method({
                              illogical_action("{Bobs} {can't} put that into itself."));
   }
 });
+actions.verify.add_method({
+  name: "inserting into again",
+  when: action => action.verb === "inserting into" && action.iobj === world.location(action.dobj),
+  handle: function (action) {
+    return verification.join(this.next(),
+                             illogical_action("That is already in there."));
+  }
+});
+actions.verify.add_method({
+  name: "inserting into container",
+  when: action => action.verb === "inserting into" && world.is_a(action.iobj, "container"),
+  handle: function (action) {
+    return verification.join(this.next(), non_obvious_action());
+  }
+});
 actions.before.add_method({
   name: "inserting into contents",
   when: action => action.verb === "inserting into",
@@ -4586,6 +4605,21 @@ actions.verify.add_method({
   handle: function (action) {
     return verification.join(this.next(),
                              illogical_action("{Bobs} {can't} place that on itself."));
+  }
+});
+actions.verify.add_method({
+  name: "placing on again",
+  when: action => action.verb === "placing on" && action.iobj === world.location(action.dobj),
+  handle: function (action) {
+    return verification.join(this.next(),
+                             illogical_action("That is already placed there."));
+  }
+});
+actions.verify.add_method({
+  name: "placing on supporter",
+  when: action => action.verb === "placing on" && world.is_a(action.iobj, "supporter"),
+  handle: function (action) {
+    return verification.join(this.next(), non_obvious_action());
   }
 });
 actions.before.add_method({

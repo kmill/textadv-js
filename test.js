@@ -247,12 +247,18 @@ def_obj("small box", "container", {
   description: "A small open box made of pine."
 }, {put_in: "Container Alley"});
 
-def_obj("table", "supporter", {
+def_obj("wooden table", "supporter", {
   description: "It's just a table, made of wood.",
   fixed_in_place: true,
   no_take_msg: "The table is too large to comfortably carry, so you won't try.",
   enterable: true
 }, {put_in: "Container Alley"});
+
+def_obj("cheap table", "supporter", {
+  description: "It's a cheap plastic table",
+  no_enter_msg: "It'll break if you try to get on it."
+}, {put_in: "Container Alley"});
+
 
 /*
 def_obj("plain door", "door", {
