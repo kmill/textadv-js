@@ -4995,6 +4995,9 @@ actions.try_before.add_method({
   when: (action) => action.verb === "entering",
   handle: function (action) {
     this.next();
+    if (world.location(world.actor) === action.dobj) {
+      return;
+    }
     var o;
     var actor_chain = [];
     o = world.actor;
