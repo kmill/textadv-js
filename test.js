@@ -1,39 +1,92 @@
+world.global.set("game title", "A visit to TestWorld");
+world.global.set("game author", "Kyle Miller");
+world.global.set("game description", `You just pulled up to the laboratory
+and made your way into the lobby.  Hopefully all the experiments are still
+running smoothly...`);
+
 window.addEventListener("load", () => {
   init_output("output");
   start_game_loop();
   return;
-  out.write_text("Welcome! ");
-  out.wrap_action_link("do foo", () => {
-    out.write_text("click to foo");
-  });
-  out.write_text(" that was a link");
-  out.para();
-  out.write_text("This is a new paragraph. ");
-  out.The("ball"); out.write_text(" is "); out.a("ball"); out.write_text(".");
-  out.para();
-  out.look("north");
-  out.write_text(" ");
-  out.serial_comma(["plain door", "ball", "ball2"]);
-  out.para();
-  out.write("[The ball] is [a ball].[para]You can look [look north] towards the horizon.");
-  out.write("[para]{Bobs} {look} upon the vista and {contemplate} {our} future.");
-  out.para();
-  world.describe_object("locket");
-  out.para();
-  world.describe_current_location();
 });
 
-def_obj("main room", "room", {
-  name: "Main Room",
-//  makes_light: false,
-  description: `This is a room, like many others, but what sets it apart is how it is the first one that comes to mind
-when you think of a "room."  Hence it's the main one.`
+def_obj("player", "person", {
+  proper_named: false,
+  words: ["@player", "@yourself", "@self", "@me"],
+  description: "You're figuring stuff out."
 });
+world.put_in("player", "Lobby");
 
-def_obj("other room", "room", {
-  name: "Other Room"
+def_obj("photo ID", "thing", {
+  added_words: ["@identification"],
+  description: `It's your photo ID, which gives you access to TestWorld.  When you rock it
+back and forth the holographic portrait gives you slightly different perspectives of your head.`
+}, {give_to: "player"});
+
+
+def_obj("Lobby", "room", {
+  name: "TestWorld Lobby",
+  description: `You're in the lobby area for TestWorld, a laboratory for
+the [enter_inline code]textadv-js[leave] interactive fiction engine.  So long as
+you have your photo id, you have free access to the entire premises.
+There is a restroom to the [dir west].
+
+[para]To the [dir north] is the ball pit.
+
+[para]You see [a sign] on the wall.`
 });
+make_known("Lobby Restroom");
+make_known("Ball Pit");
 
+def_obj("sign", "thing", {
+  description: `It says "0 days since last accident." Sounds about right.`,
+  is_scenery: true
+}, {put_in: "Lobby"});
+
+def_obj("chair", "supporter", {
+  name: "leather armchair",
+  added_words: ["leather", "@chair"],
+  enterable: true,
+  fixed_in_place: true,
+  no_take_msg: "That's glued to the floor.",
+  description: "This leather armchair has seen some use."
+}, {put_in: "Lobby"});
+def_obj("loose change", "thing", {
+  uncountable: true,
+  added_words: ["@dime", "@nickel"],
+  description: "Dimes, nickels, and quarters, but strangely no pennies."
+}, {put_in: "chair"});
+
+def_obj("booster chair", "supporter", {
+  description: "It's a chair to put on chairs.",
+  enterable: true
+}, {put_in: "chair"});
+
+def_obj("cardboard box", "container", {
+  description: "It's a cardboard box, big enough to hide in.",
+  enterable: true,
+  openable: true,
+  is_open: true
+}, {put_in: "chair"});
+
+
+def_obj("Lobby Restroom", "room", {
+  added_words: ["bathroom"],
+  description: `It's a standard institutional single-occupancy restroom,
+just to the west of the main lobby.`
+});
+def_obj("restroom door", "door", {
+  added_words: ["bathroom"],
+  is_scenery: true,
+  description: "A black door with a sign indicating it's for a single-occupancy restroom."
+});
+world.connect_rooms("Lobby", "west", "Lobby Restroom", {via: "restroom door"});
+
+def_obj("Ball Pit", "room", {
+});
+world.connect_rooms("Lobby", "north", "Ball Pit");
+
+/*
 def_obj("plain door", "door", {
 });
 world.connect_rooms("main room", "east", "plain door");
@@ -57,13 +110,6 @@ def_obj("ball2", "thing", {
   put_in: "other room"
 });
 
-def_obj("player", "person", {
-  proper_named: false,
-  words: ["@player", "@yourself", "@self", "@me"],
-  description: "You're figuring stuff out."
-}, {
-  put_on: "chair"
-});
 def_obj("coin", "thing", {
 }, {
   give_to: "player"
@@ -93,18 +139,4 @@ def_obj("Colleen", "person", {
   put_in: "main room"
 });
 //world.actor = "Colleen";
-def_obj("chair", "supporter", {
-  name: "leather armchair",
-  added_words: ["@chair"],
-  is_enterable: true,
-  description: "This leather armchair has seen some use."
-}, {
-  put_in: "main room"
-});
-def_obj("loose change", "thing", {
-  indefinite_name: "some loose change",
-  added_words: ["@dime", "@nickel"],
-  description: "Dimes, nickels, and quarters, but strangely no pennies."
-}, {
-  put_on: "chair"
-});
+*/

@@ -68,7 +68,13 @@ window.addEventListener("load", () => {
   });
 
   document.body.addEventListener("click", function (e) {
-    var attr = e.target.getAttribute("data-action");
+    var node = e.target;
+    var attr;
+    while (node) {
+      attr = node.getAttribute("data-action");
+      if (attr) break;
+      node = node.parentElement;
+    }
     if (attr) {
       e.stopPropagation();
       e.preventDefault();

@@ -315,6 +315,10 @@ function def_tagged_many_to_many_relation(name, options) {
   };
 }
 
+def_property("global", 1, {
+  name: "Global variables.  Infrequently used."
+});
+
 /*** Kinds ***/
 
 def_many_to_one_relation("kind", {
@@ -396,26 +400,16 @@ world.is_a.add_method({
 def_many_to_one_relation("location", {
   has_tag: true,
   doc: `the location of an object is another object, and the location relation is tagged with
-one of five things: contained_by, supported_by, owned_by, part_of, worn_by`
+one of five things: contained_by, owned_by, part_of, worn_by`
 });
 
 def_activity("put_in", {
-  doc: "make something be contained by something.  This should be used for a container or a room."
+  doc: "make something be contained by something.  This should be used for containers, supporters, and rooms."
 });
 world.put_in.add_method({
   name: "default",
   handle: function (obj, container) {
     world.location.relate(obj, container, "contained_by");
-  }
-});
-
-def_activity("put_on", {
-  doc: "make something be supported by something.  This should be used for a supporter."
-});
-world.put_on.add_method({
-  name: "default",
-  handle: function (obj, supporter) {
-    world.location.relate(obj, supporter, "supported_by");
   }
 });
 
@@ -550,6 +544,11 @@ world.connect_rooms.add_method({
   name: "default",
   handle: function(room1, dir, room2, options) {
     options = options || {};
+    if (options.via) {
+      world.connect_rooms(room1, dir, options.via);
+      world.connect_rooms(options.via, dir, room2);
+      return;
+    }
     world.exits.relate(room1, room2, dir);
     if (!options.one_way) {
       world.exits.relate(room2, room1, world.inverse_direction(dir));
@@ -599,6 +598,15 @@ world.name.add_method({
   handle: (x) => ''+x
 });
 
+def_property("uncountable", 1, {
+  doc: `Represents whether the object is an uncountable noun.`
+});
+world.uncountable.add_method({
+  name: "default",
+  when: (x) => world.kind(x),
+  handle: (x) => false
+});
+
 def_property("proper_named", 1, {
   doc: `Represents whether or not the name of something is a proper
 name.  For inhibiting the article for definite_name and indefinite_name.`
@@ -630,6 +638,8 @@ world.definite_name.add_method({
   handle: function (x) {
     if (world.proper_named(x)) {
       return world.printed_name(x);
+    } else if (world.uncountable(x)) {
+      return "some " + world.printed_name(x);
     } else {
       return "the " + world.printed_name(x);
     }
@@ -646,6 +656,8 @@ world.indefinite_name.add_method({
     var printed_name = world.printed_name(x);
     if (world.proper_named(x)) {
       return printed_name;
+    } else if (world.uncountable(x)) {
+      return "some " + printed_name;
     } else if (printed_name.match(/^[aeiou]/i)) {
       return "an " + printed_name;
     } else {
@@ -715,8 +727,29 @@ def_property("visited", 2, {
 });
 world.visited.add_method({
   name: "room default",
-  when: (x, person) => world.is_a(x, "room") && world.is_a(x, "person"),
+  when: (x, person) => world.is_a(x, "room") && world.is_a(person, "person"),
   handle: (x, person) => false
+});
+
+def_property("known", 2, {
+  doc: `Represents whether something is known to someone.`
+});
+function make_known(obj, /*opt*/actor) {
+  /* A utility function to make an object known.  Returns the object. */
+  if (!actor) {
+    actor = world.actor;
+  }
+  world.known.set(obj, actor, true);
+  return obj;
+}
+world.known.add_method({
+  name: "default",
+  handle: (x, person) => false
+});
+world.known.add_method({
+  name: "room visited",
+  when: (x, person) => world.is_a(x, "room") && world.is_a(person, "person"),
+  handle: (x, person) => world.visited(x, person)
 });
 
 def_activity("get_room_doors", {
@@ -807,7 +840,7 @@ def_property("no_go_msg", 2, {
 world.no_go_msg.add_method({
   name: "default",
   when: (x, dir) => world.is_a(x, "room"),
-  handle: (x, dir) => `{Bob} can't go that way.`
+  handle: (x, dir) => `{Bobs} {can't} go that way.`
 });
 
 def_property("when_go_msg", 2, {
@@ -1088,6 +1121,20 @@ world.accessible_to.add_method({
   when: (x, actor) => !world.visible_to(x, actor),
   handle: (x, actor) => false
 });
+world.accessible_to.add_method({
+  name: "accessible if it's in location chain of actor",
+  handle: function (x, actor) {
+    /* This helps prevents accidentally trapping oneself inside something without light. */
+    var loc = world.location(actor);
+    while (loc) {
+      if (loc === x) {
+        return true;
+      }
+      loc = world.location(loc);
+    }
+    return this.next();
+  }
+});
 
 def_property("is_opaque", 1, {
   doc: `Represents whether the object cannot transmit light.`
@@ -1098,22 +1145,22 @@ world.is_opaque.add_method({
   handle: (x) => true
 });
 
-def_property("is_enterable", 1, {
+def_property("enterable", 1, {
   doc: `Is true if the object is something someone could enter.`
 });
-world.is_enterable.add_method({
+world.enterable.add_method({
   name: "default",
   when: (x) => world.is_a(x, "thing"),
   handle: (x) => false
 });
 
 def_property("no_enter_msg", 1, {
-  doc: `Gives a message for why one is unable to enter the object (when is_enterable is not true).`
+  doc: `Gives a message for why one is unable to enter the object (when enterable is not true).`
 });
 world.no_enter_msg.add_method({
   name: "default",
   when: (x) => world.is_a(x, "thing"),
-  handle: (x) => `{Bob} can't enter that.`
+  handle: (x) => `{Bobs} {can't} enter that.`
 });
 
 def_property("parent_enterable", 1, {
@@ -1129,7 +1176,7 @@ world.parent_enterable.add_method({
       return null;
     }
     while (!world.is_a(loc, "room")) {
-      if (world.is_enterable(loc)) {
+      if (world.enterable(loc)) {
         return loc;
       }
       loc = world.location(loc);
@@ -1146,7 +1193,7 @@ def_property("locale_description", 1, {
 });
 world.locale_description.add_method({
   doc: "default",
-  when: (x) => world.is_enterable(x),
+  when: (x) => world.enterable(x),
   handle: (x) => null
 });
 
@@ -1421,7 +1468,7 @@ world.visible_container.add_method({
 
 world.effective_container.add_method({
   name: "container",
-  when: (x) => world.is_a(x, "container") && (world.is_opaque(x) || (world.openable(x) && world.is_closed(x))),
+  when: (x) => world.is_a(x, "container") && (world.is_opaque(x) || (world.openable(x) && !world.is_open(x))),
   handle: (x) => x
 });
 
@@ -1430,7 +1477,7 @@ world.effective_container.add_method({
 world.contents.add_method({
   name: "supporter default",
   when: (x) => world.is_a(x, "supporter"),
-  handle: (x) => world.location.related_to(x, "supported_by")
+  handle: (x) => world.location.related_to(x, "contained_by")
 });
 
 world.suppress_content_description.add_method({
@@ -1898,16 +1945,16 @@ class HTML_abstract_builder {
     });
   }
 
-  the_(o) { out.write_text(world.definite_name(o)); }
+  the_(o) { make_known(o); out.write_text(world.definite_name(o)); }
   the(o) { out.wrap_examine(o, () => out.the_(o)); }
-  The_(o) { out.write_text(str_util.cap(world.definite_name(o))); }
+  The_(o) { make_known(o); out.write_text(str_util.cap(world.definite_name(o))); }
   The(o) { out.wrap_examine(o, () => out.The_(o)); }
-  a(o) { out.wrap_examine(o, () => out.write_text(world.indefinite_name(o))); }
-  A(o) { out.wrap_examine(o, () => out.write_text(str_util.cap(world.indefinite_name(o)))); }
-  we(o) { out.wrap_examine(o, () => out.write_text(world.subject_pronoun(o))); }
-  We(o) { out.wrap_examine(o, () => out.write_text(str_util.cap(world.subject_pronoun(o)))); }
-  us(o) { out.wrap_examine(o, () => out.write_text(world.object_pronoun(o))); }
-  Us(o) { out.wrap_examine(o, () => out.write_text(str_util.cap(world.object_pronoun(o)))); }
+  a(o) { make_known(o); out.wrap_examine(o, () => out.write_text(world.indefinite_name(o))); }
+  A(o) { make_known(o); out.wrap_examine(o, () => out.write_text(str_util.cap(world.indefinite_name(o)))); }
+  we(o) { make_known(o); out.wrap_examine(o, () => out.write_text(world.subject_pronoun(o))); }
+  We(o) { make_known(o); out.wrap_examine(o, () => out.write_text(str_util.cap(world.subject_pronoun(o)))); }
+  us(o) { make_known(o); out.wrap_examine(o, () => out.write_text(world.object_pronoun(o))); }
+  Us(o) { make_known(o); out.wrap_examine(o, () => out.write_text(str_util.cap(world.object_pronoun(o)))); }
 
   serial_comma(objs, {conj="and", comma=",", force_comma=false}={}) {
     /* Concatenates a list of writers, using the serial comma.  The objs can either be functions
@@ -1955,7 +2002,7 @@ class HTML_abstract_builder {
     out.serial_comma(objs, opts);
   }
 
-  write(s) {
+  write(s /* or more arguments */) {
     /* Takes a string and expands phrases in square brackets by calling the corresponding
        'out' method --- all other text is written using 'out.write_text'.
 
@@ -1968,6 +2015,13 @@ class HTML_abstract_builder {
        If s is falsy (for example null, false, or undefined), then returns immediately.
        If s is a function, then that function is evaluated instead.
     */
+    if (arguments.length > 1) {
+      for (let i = 0; i < arguments.length; i++) {
+        out.write(arguments[i]);
+      }
+      return;
+    }
+
     if (!s) {
       return;
     }
@@ -2312,15 +2366,13 @@ world.terse_obj_description.add_method({
           state = "which is " + world.is_open_msg(o) + " and ";
         }
         return () => {
-          out.write(td);
-          out.write(" (" + state + "in which ");
+          out.write(td, " (" + state + "in which ");
           out.is_are_list(msgs);
           out.write(")");
         };
       } else if (contents.length === 0) {
         return () => {
-          out.write(td);
-          world.write(" (which is empty)");
+          out.write(td, " (which is empty)");
         };
       }
     }
@@ -2349,7 +2401,7 @@ world.terse_obj_description.add_method({
       return () => {
         out.write(td);
         out.write(" (on which ");
-        world.is_are_list(msgs);
+        out.is_are_list(msgs);
         out.write(")");
       };
     } else {
@@ -2607,16 +2659,13 @@ world.describe_location_heading.add_method({
   when: (loc, vis_cont) => loc === vis_cont,
   handle: function (loc, vis_cont) {
     world.describe_location.mentioned.add(loc);
-    out.with_inline("span", () => {
-      out.add_class("location_heading");
-      if (world.is_a(vis_cont, "thing")) {
-        // Create an examine link for things
-        out.The(vis_cont);
-      } else {
-        // Don't create a link for non-things.
-        out.write(world.definite_name(vis_cont));
-      }
-    });
+    if (world.is_a(vis_cont, "thing")) {
+      // Create an examine link for things
+      out.The(vis_cont);
+    } else {
+      // Don't create a link for non-things.
+      out.write(world.definite_name(vis_cont));
+    }
   }
 });
 world.describe_location_heading.add_method({
@@ -2661,8 +2710,10 @@ world.describe_location.add_method({
   handle: function (loc, vis_cont) {
     this.next();
     world.describe_location.currently_lit = true;
-    world.describe_location_heading(loc, vis_cont);
-    out.para();
+    out.with_block("div", () => {
+      out.add_class("location_heading");
+      world.describe_location_heading(loc, vis_cont);
+    });
   }
 });
 world.describe_location.add_method({
@@ -2670,7 +2721,7 @@ world.describe_location.add_method({
   handle: function (loc, vis_cont) {
     this.next();
     var do_desc = true;
-    if (world.is_a(loc, "thing") && world.is_enterable(loc)) {
+    if (world.is_a(loc, "thing") && world.enterable(loc)) {
       /* It's possible it makes more sense to walk up the location chain until we hit
          a locale description, but I have no examples of this yet. */
       var loc_desc = world.locale_description(loc);
@@ -2719,7 +2770,6 @@ world.describe_location.add_method({
         mentioned.add(o);
         if (!msg) // The object printed its own description.
           return;
-        console.log(o);
         let o_loc;
         if (world.is_a(o, "door")) {
           // Doors have no locations; we assume it's in the vis_cont.
@@ -2812,7 +2862,7 @@ world.describe_location.add_method({
   when: (loc, vis_cont) => !world.contains_light(vis_cont),
   handle: function (loc, vis_cont) {
     world.describe_location.currently_lit = true;
-    out.with_inline("span", () => {
+    out.with_block("div", () => {
       out.add_class("location_heading");
       out.write("Darkness");
     });
@@ -2930,13 +2980,10 @@ actions.write_infinitive_form.add_method({
   }
 });
 
-function make_action(verb, dobj=null, iobj=null) {
-  return {
-    verb: verb,
-    dobj: dobj,
-    iobj: iobj
-  };
-}
+actions.setup_action = make_generic_function("setup_action", {
+  doc: `Some actions need additional fields to be set up.  This should tolerate being run
+multiple times on the same action.`
+});
 
 const VERIFY_LOGICAL_CUTOFF = 90;
 
@@ -2955,12 +3002,12 @@ class verification {
   static join(v1, v2) {
     /* If both are reasonable, return the best; otherwise return the worst. */
     if (v1.is_reasonable() && v2.is_reasonable()) {
-      if (v1.reason >= v2.reason)
+      if (v1.score >= v2.score)
         return v1;
       else
         return v2;
     } else {
-      if (v1.reason <= v2.reason)
+      if (v1.score <= v2.score)
         return v1;
       else
         return v2;
@@ -3056,6 +3103,7 @@ actions.run.add_method({
       if (write_action === true) {
         write_action = (s) => { out.write_text("("); out.write(s); out.write(")"); };
       }
+      out.para();
       write_action(() => actions.write_gerund_form(action));
       out.para();
     }
@@ -3063,8 +3111,8 @@ actions.run.add_method({
     if (!reasonable.is_reasonable()) {
       throw new abort_action(reasonable.reason);
     }
-    actions.try_before(action);
     try {
+      actions.try_before(action);
       actions.before(action);
     } catch (x) {
       if (x instanceof do_instead) {
@@ -3216,7 +3264,7 @@ function require_x_held(verb, name, f, {only_hint=false, transitive=true}={}) {
                                          out.the(f(action)); out.write("."); });
         }
         if (!is_held(f(action))) {
-          actions.do_first(make_action("take", f(action)), {silently: true});
+          actions.do_first(taking(f(action)), {silently: true});
         }
         // just in case it succeeds but don't have the object, do a check.
         if (!is_held(f(action))) {
@@ -3581,71 +3629,73 @@ function make_parse_seq(parsers) {
 parser.articles = new Set(["a", "an", "the", "some"]);
 parser.articles.forEach(a => parser.known_words.add(a));
 
-function* parse_thing(cache, s, toks, i) {
-  parser.ensure_dict(cache, "thing");
-  var j = i;
-  if (j < toks.length && parser.articles.has(toks[j].s)) {
-    j++;
-  }
-  function inter(a, b) {
-    // null represents the universal set
-    if (a === null)
-      return b;
-    else if (b === null)
-      return a;
-    else
-      return new Set([...a].filter(x => b.has(x))); // apparently this is the idiom?
-  }
-  function ok(s) { return s === null || s.size > 0; }
-  function* in_adj(i, objs) {
-    if (i < toks.length) {
-      var objs_i = cache.dict.thing.adjs.get(toks[i].s);
-      if (objs_i) {
-        objs = inter(objs, objs_i);
-        if (ok(objs)) {
-          for (var m of in_adj(i + 1, objs)) {
-            yield new parser_match(i, m.end, m.value, m.score + 1);
+function make_parse_kind(kind) {
+  return function* (cache, s, toks, i) {
+    parser.ensure_dict(cache, kind);
+    var j = i;
+    if (j < toks.length && parser.articles.has(toks[j].s)) {
+      j++;
+    }
+    function inter(a, b) {
+      // null represents the universal set
+      if (a === null)
+        return b;
+      else if (b === null)
+        return a;
+      else
+        return new Set([...a].filter(x => b.has(x))); // apparently this is the idiom?
+    }
+    function ok(s) { return s === null || s.size > 0; }
+    function* in_adj(i, objs) {
+      if (i < toks.length) {
+        var objs_i = cache.dict[kind].adjs.get(toks[i].s);
+        if (objs_i) {
+          objs = inter(objs, objs_i);
+          if (ok(objs)) {
+            for (var m of in_adj(i + 1, objs)) {
+              yield new parser_match(i, m.end, m.value, m.score + 1);
+            }
           }
         }
       }
+      yield* in_noun(i, objs);
     }
-    yield* in_noun(i, objs);
-  }
-  function* in_noun(i, objs) {
-    if (i < toks.length) {
-      var objs_i = cache.dict.thing.nouns.get(toks[i].s);
-      if (objs_i) {
-        objs = inter(objs, objs_i);
-        if (ok(objs)) {
-          for (var m of in_noun(i + 1, objs)) {
-            yield new parser_match(i, m.end, m.value, m.score + 2);
+    function* in_noun(i, objs) {
+      if (i < toks.length) {
+        var objs_i = cache.dict[kind].nouns.get(toks[i].s);
+        if (objs_i) {
+          objs = inter(objs, objs_i);
+          if (ok(objs)) {
+            for (var m of in_noun(i + 1, objs)) {
+              yield new parser_match(i, m.end, m.value, m.score + 2);
+            }
           }
         }
       }
-    }
-    if (objs !== null) {
-      for (var o of objs) {
-        yield new parser_match(i, i, o, 0);
+      if (objs !== null) {
+        for (var o of objs) {
+          yield new parser_match(i, i, o, 0);
+        }
       }
     }
-  }
-  // Get the best matches for each possible object
-  var matches = new Map;
-  for (var m of in_adj(j, null)) {
-    var mscore = m.score;
-    if (toks.slice(m.start, m.end).map(t => t.s).join(" ") === world.name(m.value).toLowerCase()) {
-      // exact match, bonus point
-      mscore += 1;
+    // Get the best matches for each possible object
+    var matches = new Map;
+    for (var m of in_adj(j, null)) {
+      var mscore = m.score;
+      if (toks.slice(m.start, m.end).map(t => t.s).join(" ") === world.name(m.value).toLowerCase()) {
+        // exact match, bonus point
+        mscore += 1;
+      }
+      if (!matches.has(m.value) || matches.get(m.value).score < mscore) {
+        matches.set(m.value, new parser_match(i, m.end, m.value, mscore));
+      }
     }
-    if (!matches.has(m.value) || matches.get(m.value).score < mscore) {
-      matches.set(m.value, new parser_match(i, m.end, m.value, mscore));
-    }
-  }
-  yield* matches.values();
+    yield* matches.values();
+  };
 }
 
 def_parser("anything", {
-  doc: "Parse a thing that in the world, even if it is not visible to the actor (c.f. 'something')"
+  doc: "Parse a thing that is in the world, even if it is not visible to the actor (c.f. 'something')"
 });
 parser.frontend.anything = {
   make_parser([v]) {
@@ -3659,7 +3709,7 @@ parser.anything.add_method({
   name: "main parser",
   handle: function* (cache, s, toks, i) {
     yield* this.next();
-    yield* parse_thing(cache, s, toks, i);
+    yield* make_parse_kind("thing")(cache, s, toks, i);
   }
 });
 
@@ -3681,6 +3731,49 @@ parser.something.add_method({
     yield* this.next();
     for (var m of parser.anything(cache, s, toks, i)) {
       if (world.visible_to(m.value, world.actor)) {
+        yield m;
+      }
+    }
+  }
+});
+
+def_parser("anywhere", {
+  doc: "Parse a room that is in the world, even if it is unknown to the player."
+});
+parser.frontend.anywhere = {
+  make_parser([v]) {
+    return parser.anywhere;
+  },
+  process([v], parse, match) {
+    parse[v] = match.value;
+  }
+};
+parser.anywhere.add_method({
+  name: "main parser",
+  handle: function* (cache, s, toks, i) {
+    yield* this.next();
+    yield* make_parse_kind("room")(cache, s, toks, i);
+  }
+});
+
+def_parser("somewhere", {
+  doc: `Parse a room that is known to the actor.  Filters the 'anywhere' parser,
+so if it is almost certainly better to extend that parser instead of this one.`
+});
+parser.frontend.somewhere = {
+  make_parser([v]) {
+    return parser.somewhere;
+  },
+  process([v], parse, match) {
+    parse[v] = match.value;
+  }
+};
+parser.somewhere.add_method({
+  name: "main parser",
+  handle: function* (cache, s, toks, i) {
+    yield* this.next();
+    for (var m of parser.anywhere(cache, s, toks, i)) {
+      if (world.known(m.value, world.actor)) {
         yield m;
       }
     }
@@ -3757,6 +3850,100 @@ parser.command.add_method({
 
 /*** Main game loop ***/
 
+world.global.set("game title", `(set title with 'world.global.set("game title", "My Game")')`);
+world.global.set("game headline", `An interactive fiction`);
+world.global.set("game author", `(set author with 'world.global.set("game author", "Me")')`);
+world.global.set("release number", '1');
+world.global.set("game description", null);
+
+def_activity("start_game", {
+  doc: "Procedure run at the beginning of the game."
+});
+world.start_game.add_method({
+  name: "default nothing",
+  handle: () => {}
+});
+world.start_game.add_method({
+  name: "Print game description",
+  handle: function () {
+    this.next();
+    var desc = world.global("game description");
+    if (desc) {
+      out.write(desc);
+      out.para();
+    }
+    out.with_block("div", () => {
+      out.add_class("game_title");
+      out.write(world.global("game title"));
+    });
+    out.with_block("div", () => {
+      out.add_class("game_headline");
+      out.write(world.global("game headline"), " by ", world.global("game author"));
+    });
+    out.with_block("div", () => {
+      out.add_class("game_release");
+      out.write("Release number ", world.global("release number"));
+    });
+    out.write("Type '[action help]' for help.[para]");
+  }
+});
+world.start_game.add_method({
+  name: "Give initial room description",
+  handle: function () {
+    this.next();
+    world.describe_current_location();
+    world.save_current_location();
+  }
+});
+
+def_activity("save_current_location", {
+  doc: `Store information about the current location in global variables for the
+purpose of detecting changes to decide to describe the current location again.`
+});
+world.save_current_location.add_method({
+  name: "default",
+  handle: () => {
+    var loc = world.location(world.actor);
+    if (loc) {
+      loc = world.visible_container(loc);
+    }
+    world.global.set("last location", loc);
+    world.global.set("last light", loc ? world.contains_light(loc) : null);
+  }
+});
+
+def_activity("should_describe_location", {
+  doc: `Determine whether the location should be described again.`
+});
+world.should_describe_location.add_method({
+  name: "default",
+  handle: () => {
+    var loc = world.location(world.actor);
+    if (loc) {
+      loc = world.visible_container(loc);
+    }
+    var light = loc ? world.contains_light(loc) : null;
+    return world.global("last location") !== loc || world.global("last light") !== light;
+  }
+});
+
+def_activity("step_turn", {
+  doc: "Procedure run after every action."
+});
+world.step_turn.add_method({
+  name: "default nothing",
+  handle: () => {}
+});
+world.step_turn.add_method({
+  name: "describe location",
+  handle: function () {
+    if (world.should_describe_location()) {
+      world.describe_current_location();
+      world.save_current_location();
+    }
+  }
+});
+
 var game_listeners = new Map;
 game_listeners.set("input", []);
 function add_game_listener(name, f) {
@@ -3769,7 +3956,7 @@ function game_listeners_notify(name, ...args) {
 function* game_loop() {
   parser.init_known_words();
   out.para();
-  world.describe_current_location();
+  world.start_game();
   var try_input = false;
   var input;
   main:
@@ -3897,7 +4084,6 @@ function* game_loop() {
         if (x.reason) {
           out.para();
           out.write(x.reason);
-          continue main;
         }
       } else {
         out.para();
@@ -3905,6 +4091,7 @@ function* game_loop() {
         throw x;
       }
     }
+    world.step_turn();
   }
 }
 
@@ -3941,6 +4128,7 @@ function making_mistake(reason) {
 def_verb("making mistake", "make mistake", "making mistake");
 
 actions.before.add_method({
+  name: "making mistake",
   when: (action) => action.verb === "making mistake",
   handle: function (action) {
     throw new abort_action(action.reason);
@@ -3972,6 +4160,7 @@ def_verb("help", "get help", "getting help");
 parser.action.understand("help", (parse) => getting_help());
 
 actions.carry_out.add_method({
+  name: "help",
   when: (action) => action.verb === "help",
   handle: function (action) {
     out.write_text("[");
@@ -4028,6 +4217,7 @@ parser.action.understand("look/l/ls", (parse) => looking());
 parser.action.understand("look around", (parse) => looking());
 
 actions.carry_out.add_method({
+  name: "looking",
   when: (action) => action.verb === "looking",
   handle: (action) => world.describe_current_location()
 });
@@ -4037,7 +4227,7 @@ actions.carry_out.add_method({
 function looking_toward(dir) {
   return {verb: "looking toward", dir: dir};
 }
-actions.write_gerund_form.add_method({
+actions.write_gerund_form.add_method({  
   when: (action) => action.verb === "looking toward",
   handle: (action) => out.write("looking " + action.dir)
 });
@@ -4049,6 +4239,7 @@ actions.write_infinitive_form.add_method({
 parser.action.understand("look/l [direction d]", (parse) => looking_toward(parse.d));
 
 actions.carry_out.add_method({
+  name: "looking toward",
   when: (action) => action.verb === "looking toward",
   handle: (action) => world.describe_direction(action.dir)
 });
@@ -4064,6 +4255,7 @@ parser.action.understand("inventory/i", (parse) => taking_inventory());
 
 /* This is carry_out and not report since the whole point of inventory is the text output. */
 actions.carry_out.add_method({
+  name: "taking inventory",
   when: (action) => action.verb === "taking inventory",
   handle: function (action) {
     if (world.contents(world.actor).length === 0) {
@@ -4094,6 +4286,7 @@ require_dobj_visible("examining");
 
 /* This is carry_out and not report since the whole point of examining something is the text output. */
 actions.carry_out.add_method({
+  name: "examining",
   when: (action) => action.verb === "examining",
   handle: (action) => world.describe_object(action.dobj)
 });
@@ -4193,6 +4386,7 @@ actions.before.add_method({
 });
 
 actions.carry_out.add_method({
+  name: "taking",
   when: (action) => action.verb === "taking",
   handle: function (action) {
     world.give_to(action.dobj, world.actor);
@@ -4200,6 +4394,7 @@ actions.carry_out.add_method({
 });
 
 actions.report.add_method({
+  name: "taking",
   when: (action) => action.verb === "taking",
   handle: function (action) {
     out.write("Taken.");
@@ -4223,6 +4418,7 @@ all_are_mistakes(["drop/set", "put/set down"],
 require_dobj_held("dropping", {only_hint: true, transitive: true});
 
 actions.before.add_method({
+  name: "dropping",
   when: (action) => action.verb === "dropping" && action.dobj === world.actor,
   handle: function (action) {
     throw new abort_action("{Bobs} {can't} be dropped.");
@@ -4230,20 +4426,867 @@ actions.before.add_method({
 });
 
 actions.carry_out.add_method({
+  name: "dropping",
   when: (action) => action.verb === "dropping",
   handle: function (action) {
     var loc = world.location(world.actor);
-    if (world.is_a(loc, "supporter")) {
-      world.put_on(action.dobj, loc);
-    } else {
-      world.put_in(action.dobj, loc);
-    }
+    world.put_in(action.dobj, loc);
   }
 });
 
 actions.report.add_method({
+  name: "dropping",
   when: (action) => action.verb === "dropping",
   handle: function (action) {
     out.write("Dropped.");
+  }
+});
+
+//// Going
+
+/*
+To resolve going in a direction, it's useful to calculate where we're going,
+what we're going through (the via), and where we're coming from.
+*/
+
+function going(dir, from=null, via=null, to=null) {
+  return {verb: "going", dir: dir, from: from, via: via, to: to, setup: false};
+}
+actions.write_gerund_form.add_method({
+  when: (action) => action.verb === "going",
+  handle: function (action) {
+    out.write_text("going " + action.dir);
+    if (action.to) {
+      out.write(" to ", world.definite_name(action.to));
+    }
+    if (action.via && action.via !== action.to) {
+      out.write(" via "); out.the(action.to);
+    }
+  }
+});
+actions.write_infinitive_form.add_method({
+  when: (action) => action.verb === "going",
+  handle: function (action) {
+    out.write_text("go " + action.dir);
+    if (action.to) {
+      out.write(" to ", world.definite_name(action.to));
+    }
+    if (action.via && action.via !== action.to) {
+      out.write(" via "); out.the(action.to);
+    }
+  }
+});
+
+parser.action.understand("go/g [direction d]", (parse) => going(parse.d));
+parser.action.understand("[direction d]", (parse) => going(parse.d));
+
+all_are_mistakes(["go/g"], "{Bobs} {need} to be going in a particular direction.");
+
+actions.setup_action.add_method({
+  name: "going setup",
+  when: (action) => action.verb === "going",
+  handle: function (action) {
+    /* Initialize the 'from', 'via', and 'to' fields of a going action.  Call this whenever
+       these fields need to be accessed. */
+    if (!action.setup) {
+      action.setup = true;
+      action.from = world.containing_room(world.actor);
+      world.exits(action.from).forEach(e => {
+        if (e.tag === action.dir) {
+          action.via = e.obj;
+        }
+      });
+      if (!action.via) {
+        return;
+      }
+      action.to = action.via;
+      if (world.is_a(action.via, "door")) {
+        action.to = world.door_other_side_from(action.via, action.from);
+      }
+    }
+  }
+});
+
+actions.verify.add_method({
+  name: "very logical to go in direction that exists",
+  when: (action) => action.verb === "going",
+  handle: function (action) {
+    var room = world.containing_room(world.actor);
+    if (world.get_room_exit_directions(room).includes(action.dir)) {
+      return verification.join(this.next(),
+                               very_logical_action());
+    } else {
+      return this.next();
+    }
+  }
+});
+
+actions.try_before.add_method({
+  name: "try opening a closed door before going",
+  when: (action) => action.verb === "going",
+  handle: function (action) {
+    actions.setup_action(action);
+    if (action.via && world.is_a(action.via, "door")) {
+      if (world.openable(action.via) && !world.is_open(action.via)) {
+        actions.do_first(opening(action.via), {silently: true});
+      }
+    }
+    this.next();
+  }
+});
+
+actions.try_before.add_method({
+  name: "try leaving containers and supporters before going",
+  when: (action) => action.verb === "going",
+  handle: function (action) {
+    actions.setup_action(action);
+    var loc = world.location(world.actor);
+    var first_loc = loc;
+    while (loc && action.from && action.from !== loc) {
+      if (world.is_a(loc, "supporter")) {
+        actions.do_first(getting_off(loc), {silently: true});
+      } else {
+        actions.do_first(exiting(loc), {silently: true});
+      }
+      var new_loc = world.parent_enterable(world.actor);
+      if (new_loc === loc) {
+        out.write("{Bobs} {can't} leave "); out.the(loc); out.write(".");
+        throw new abort_action();
+      }
+      loc = new_loc;
+    }
+    if (first_loc !== loc) {
+      // This is to reset the from/via/to
+      throw new do_instead(going(action.dir), true);
+    }
+    this.next();
+  }
+});
+
+actions.before.add_method({
+  name: "check that the going via is open if it is a door",
+  when: (action) => action.verb === "going",
+  handle: function (action) {
+    this.next();
+    actions.setup_action(action);
+    if (action.via && world.is_a(action.via, "door")) {
+      if (world.openable(action.via) && !world.is_open(action.via)) {
+        throw new abort_action(world.no_go_msg(action.from, action.dir));
+      }
+    }
+  }
+});
+
+actions.before.add_method({
+  name: "check that there is a destination when going",
+  when: (action) => action.verb === "going",
+  handle: function (action) {
+    this.next();
+    actions.setup_action(action);
+    if (!action.to) {
+      throw new abort_action(world.no_go_msg(action.from, action.dir));
+    }
+  }
+});
+
+actions.carry_out.add_method({
+  name: "going",
+  when: (action) => action.verb === "going",
+  handle: function (action) {
+    this.next();
+    world.put_in(world.actor, action.to);
+  }
+});
+
+actions.report.add_method({
+  name: "going",
+  when: (action) => action.verb === "going",
+  handle: function (action) {
+    this.next();
+    out.write(world.when_go_msg(action.from, action.dir));
+  }
+});
+
+//// Going to
+
+/*
+Going to a place by name is implemented using a try_before that turns it
+into a sequence of going actions.
+*/
+
+function going_to(room) {
+  return {verb: "going to", room: room};
+}
+actions.write_gerund_form.add_method({
+  when: (action) => action.verb === "going to",
+  handle: function (action) {
+    out.write("going to ", world.definite_name(action.room));
+  }
+});
+actions.write_infinitive_form.add_method({
+  when: (action) => action.verb === "going to",
+  handle: function (action) {
+    out.write("go to ", world.definite_name(action.room));
+  }
+});
+
+parser.action.understand("go/g to/into [somewhere x]", (parse) => going_to(parse.x));
+parser.action.understand("goto/go/g [somewhere x]", (parse) => going_to(parse.x));
+
+all_are_mistakes(["go/g to", "goto"], "{Bobs} {need} to be going somewhere in particular.");
+
+actions.verify.add_method({
+  name: "going to",
+  when: (action) => action.verb === "going to",
+  handle: function (action) {
+    if (world.containing_room(world.actor) === action.room
+        || world.known(action.room, world.actor)) {
+      return verification.join(this.next(),
+                               logical_action());
+    } else {
+      return verification.join(this.next(),
+                               illogical_not_visible("{Bobs} {know} of no such place."));
+    }
+  }
+});
+
+actions.try_before.add_method({
+  name: "going to",
+  when: (action) => action.verb === "going to",
+  handle: function (action) {
+    /* Plan out a path and then attempt to follow it. */
+
+    var start_loc = world.containing_room(world.actor);
+    var dest_loc = action.room;
+    if (start_loc === dest_loc) {
+      throw new abort_action("{Bobs} {are} already there.");
+    }
+
+    // breadth-first search
+    var queue = [[{to: start_loc}]]; // queue of current paths
+    var visited = new Set;
+    var found = null;
+    search:
+    while (queue.length > 0) {
+      var path = queue.shift();
+      var cur_loc = path[path.length - 1].to;
+      if (cur_loc === dest_loc) {
+        found = path;
+        found.shift();
+        break search;
+      }
+      visited.add(cur_loc);
+      for (var e of world.exits(cur_loc)) {
+        var via = e.obj;
+        var next = e.obj;
+        if (world.is_a(e.obj, "door")) {
+          next = world.door_other_side_from(e.obj, cur_loc);
+        }
+        if (!visited.has(next) && world.known(next, world.actor)) {
+          var new_path = path.concat([{verb: "going",
+                                       dir: e.tag,
+                                       from: cur_loc,
+                                       via: via,
+                                       to: next}]);
+          queue.push(new_path);
+        }
+      }
+    }
+
+    if (!found) {
+      out.write("{Bobs} {don't} know how to get to ", world.definite_name(dest_loc), ".");
+      throw new abort_action();
+    }
+
+    // attempt to carry out the plan
+    var first = true;
+    for (let a of found) {
+      if (a.to === dest_loc) {
+        throw new do_instead(a, {suppress_message: found.length === 1});
+      } else if (first) {
+        actions.do_first(a);
+      } else {
+        var f = (s) => { out.write("(then "); out.write(s); out.write(")"); };
+        actions.run(a, {is_implied: true, write_action: f});
+      }
+      first = false;
+    }
+  }
+});
+
+//// Entering
+
+function entering(x) {
+  return {verb: "entering", dobj: x};
+}
+def_verb("entering", "enter", "entering");
+
+parser.action.understand("enter [something x]", (parse) => entering(parse.x));
+parser.action.understand("get/go/stand/sit in/into/on/through [something x]", (parse) => entering(parse.x));
+parser.action.understand("get on top of [something x]", (parse) => entering(parse.x));
+parser.action.understand("sit down on [something x]", (parse) => entering(parse.x));
+parser.action.understand("sit [something x]", (parse) => entering(parse.x));
+
+all_are_mistakes(["enter", "get/go/stand/sit in/into/on/through", "get on top", "get on top of"],
+                 "{Bobs} {need} to be entering something in particular.");
+
+require_dobj_visible("entering");
+
+actions.try_before.add_method({
+  name: "move to parent enterable before entering",
+  when: (action) => action.verb === "entering",
+  handle: function (action) {
+    this.next();
+    var o;
+    var actor_chain = [];
+    o = world.actor;
+    while (true) {
+      o = world.parent_enterable(o);
+      if (!o)
+        break;
+      actor_chain.push(o);
+      if (world.is_a(o, "room"))
+        break;
+    }
+    var obj_chain = [];
+    o = action.dobj;
+    while (true) {
+      o = world.parent_enterable(o);
+      if (!o) break;
+      obj_chain.push(o);
+      if (world.is_a(o, "room"))
+        break;
+    }
+    // find common enterable
+    var just_leave = false;
+    found: {
+      // maybe the actor_chain already contains the object
+      for (let i = 0; i < actor_chain.length; i++) {
+        if (actor_chain[i] === action.dobj) {
+          just_leave = true;
+          actor_chain.length = i;
+          break found;
+        }
+      }
+      for (let i = 0; i < obj_chain.length; i++) {
+        for (let j = 0; j < actor_chain.length; j++) {
+          if (obj_chain[i] === actor_chain[j]) {
+            // truncate arrays to before common enterable
+            actor_chain.length = j;
+            obj_chain.length = i;
+            break found;
+          }
+        }
+      }
+      // didn't find a common enterable
+      throw new abort_action("{Bobs} {can't} get to that.");
+    }
+    // first leave things
+    for (let i = 0; i < actor_chain.length; i++) {
+      o = actor_chain[i];
+      let a;
+      if (world.is_a(o, "supporter")) {
+        a = getting_off(o);
+      } else {
+        a = exiting(o);
+      }
+      if (i === actor_chain.length - 1 && just_leave) {
+        // We're supposed to just leave because we're entering the dobj by leaving.
+        throw new do_instead(a, true);
+      } else {
+        actions.do_first(a, {silently: true});
+      }
+    }
+    // then enter things
+    for (let i = obj_chain.length-1; i >=0; i--) {
+      o = obj_chain[i];
+      actions.do_first(entering(o), {silently: true});
+    }
+  }
+});
+
+actions.try_before.add_method({
+  name: "entering door",
+  when: (action) => action.verb === "entering" && world.is_a(action.dobj, "door"),
+  handle: function (action) {
+    for (var e of world.exits(world.containing_room(world.actor))) {
+      if (e.obj === action.dobj) {
+        throw new do_instead(going(e.tag));
+      }
+    }
+    throw new abort_action("{Bobs} {can't} get to that.");
+  }
+});
+
+
+actions.before.add_method({
+  name: "entering default",
+  when: (action) => action.verb === "entering",
+  handle: function (action) {
+    this.next();
+    if (!world.enterable(action.dobj)) {
+      throw new abort_action(world.no_enter_msg(action.dobj));
+    }
+  }
+});
+
+actions.before.add_method({
+  name: "entering closed thing",
+  when: (action) => (action.verb === "entering" && world.is_a(action.dobj, "container")
+                     && world.enterable(action.dobj) && world.openable(action.dobj)
+                     && !world.is_open(action.dobj)),
+  handle: function (action) {
+    actions.do_first(opening(action.dobj), {silently: true});
+    if (!world.is_open(action.dobj)) {
+      throw new abort_action("That needs to be open to be able to enter it.");
+    }
+    this.next();
+  }
+});
+
+actions.before.add_method({
+  name: "don't enter what already in",
+  when: (action) => action.verb === "entering" && world.location(world.actor) === action.dobj,
+  handle: function (action) {
+    out.write("{Bobs} {are} already on "); out.the(action.dobj); out.write(".");
+    throw new abort_action();
+  }
+});
+
+actions.before.add_method({
+  name: "don't enter what holding",
+  when: (action) => action.verb === "entering" && world.owner(action.dobj) === world.actor,
+  handle: function (action) {
+    throw new abort_action("{Bobs} {can't} enter what {bobs} {are} holding.");
+  }
+});
+
+actions.carry_out.add_method({
+  name: "entering supporter or container",
+  when: (action) => (action.verb === "entering" &&
+                     (world.is_a(action.dobj, "container") || world.is_a(action.dobj, "supporter"))),
+  handle: function (action) {
+    world.put_in(world.actor, action.dobj);
+  }
+});
+
+actions.report.add_method({
+  name: "entering container",
+  when: (action) => action.verb === "entering" && world.is_a(action.dobj, "container"),
+  handle: function (action) {
+    out.write("{Bobs} {get} into "); out.the(action.dobj); out.write(".");
+  }
+});
+
+actions.report.add_method({
+  name: "entering supporter",
+  when: (action) => action.verb === "entering" && world.is_a(action.dobj, "supporter"),
+  handle: function (action) {
+    out.write("{Bobs} {get} onto "); out.the(action.dobj); out.write(".");
+  }
+});
+
+//// Exiting
+
+function exiting(/*opt*/x) {
+  return {verb: "exiting", dobj: x, setup: arguments.length>0};
+}
+def_verb("exiting", "exit", "exiting");
+
+parser.action.understand("exit/leave", (parse) => exiting());
+parser.action.understand("get out", (parse) => exiting());
+parser.action.understand("exit/leave [something x]", (parse) => exiting(parse.x));
+parser.action.understand("get out of [something x]", (parse) => exiting(parse.x));
+
+actions.setup_action.add_method({
+  name: "exiting",
+  when: (action) => action.verb === "exiting",
+  handle: function (action) {
+    if (!action.setup) {
+      action.setup = true;
+      action.dobj = world.location(world.actor);
+    }
+  }
+});
+
+actions.verify.add_method({
+  name: "exiting should be container or supporter",
+  when: (action) => action.verb === "exiting",
+  handle: function (action) {
+    actions.setup_action(action);
+    if (!world.is_a(action.dobj, "container") && !world.is_a(action.dobj, "supporter")) {
+      return verification.join(this.next(),
+                               illogical_action("That's not something {bobs} can exit."));
+    } else {
+      return this.next();
+    }
+  }
+});
+
+actions.verify.add_method({
+  name: "exiting should leave what one is in",
+  when: (action) => action.verb === "exiting",
+  handle: function (action) {
+    actions.setup_action(action);
+    if (world.location(world.actor) !== action.dobj) {
+      return verification.join(this.next(),
+                               illogical_action("{Bobs} {are} not in that."));
+    } else {
+      return this.next();
+    }
+  }
+});
+
+actions.try_before.add_method({
+  name: "exiting supporter",
+  when: (action) => action.verb === "exiting",
+  handle: function (action) {
+    this.next();
+    actions.setup_action(action);
+    if (world.is_a(action.dobj, "supporter")) {
+      throw new do_instead(getting_off(action.dobj));
+    }
+  }
+});
+
+actions.try_before.add_method({
+  name: "exiting room",
+  when: (action) => action.verb === "exiting",
+  handle: function (action) {
+    this.next();
+    actions.setup_action(action);
+    if (world.is_a(action.dobj, "room")) {
+      throw new do_instead(going("out"));
+    }
+  }
+});
+
+actions.before.add_method({
+  name: "exiting non-container",
+  when: (action) => action.verb === "exiting",
+  handle: function (action) {
+    this.next();
+    actions.setup_action(action);
+    if (world.is_a(action.dobj, "room")) {
+      throw new abort_action("There's nothing to exit.");
+    }
+    if (!world.is_a(action.dobj, "container")) {
+      out.write("{Bobs} {can't} exit "); out.the(action.dobj); out.write(".");
+      throw new abort_action();
+    }
+  }
+});
+
+actions.before.add_method({
+  name: "exiting needs destination",
+  when: (action) => action.verb === "exiting",
+  handle: function (action) {
+    this.next();
+    actions.setup_action(action);
+    if (!world.parent_enterable(action.dobj)) {
+      // This really should never happen.
+      throw new abort_action("There's nowhere to exit to.");
+    }
+  }
+});
+
+actions.before.add_method({
+  name: "exiting closed thing",
+  when: (action) => (action.verb === "exiting" && world.is_a(action.dobj, "container")
+                     && world.enterable(action.dobj) && world.openable(action.dobj)
+                     && !world.is_open(action.dobj)),
+  handle: function (action) {
+    this.next();
+    actions.do_first(opening(action.dobj), {silently: true});
+    if (!world.is_open(action.dobj)) {
+      throw new abort_action("That needs to be open in order to exit it.");
+    }
+  }
+});
+
+actions.carry_out.add_method({
+  name: "exiting",
+  when: (action) => action.verb === "exiting",
+  handle: function (action) {
+    actions.setup_action(action);
+    world.put_in(world.actor, world.parent_enterable(action.dobj));
+  }
+});
+
+actions.report.add_method({
+  name: "exiting",
+  when: (action) => action.verb === "exiting",
+  handle: function (action) {
+    out.write("{Bobs} {get} gets out of "); out.the(action.dobj); out.write(".");
+  }
+});
+
+
+//// Getting off
+
+function getting_off(/*opt*/x) {
+  return {verb: "getting off", dobj: x, setup: arguments.length>0};
+}
+def_verb("getting off", "get off", "getting off");
+
+parser.action.understand("get off", (parse) => getting_off());
+parser.action.understand("climb/get down", (parse) => getting_off());
+parser.action.understand("stand/get up", (parse) => getting_off());
+
+parser.action.understand("get/climb off [something x]", (parse) => getting_off(parse.x));
+parser.action.understand("get/climb off of [something x]", (parse) => getting_off(parse.x));
+
+actions.setup_action.add_method({
+  name: "getting off",
+  when: (action) => action.verb === "getting off",
+  handle: function (action) {
+    if (!action.setup) {
+      action.setup = true;
+      action.dobj = world.location(world.actor);
+    }
+  }
+});
+
+actions.verify.add_method({
+  name: "getting off should be container or supporter",
+  when: (action) => action.verb === "getting off",
+  handle: function (action) {
+    actions.setup_action(action);
+    if (!world.is_a(action.dobj, "container") && !world.is_a(action.dobj, "supporter")) {
+      return verification.join(this.next(),
+                               illogical_action("That's not something {bobs} can get off."));
+    } else {
+      return this.next();
+    }
+  }
+});
+
+actions.verify.add_method({
+  name: "should get off what one is in",
+  when: (action) => action.verb === "getting off",
+  handle: function (action) {
+    actions.setup_action(action);
+    if (world.location(world.actor) !== action.dobj) {
+      return verification.join(this.next(),
+                               illogical_action("{Bobs} {are} not on that."));
+    } else {
+      return this.next();
+    }
+  }
+});
+
+actions.try_before.add_method({
+  name: "getting off container",
+  when: (action) => action.verb === "getting off",
+  handle: function (action) {
+    this.next();
+    actions.setup_action(action);
+    if (world.is_a(action.dobj, "container")) {
+      throw new do_instead(exiting(action.dobj));
+    }
+  }
+});
+
+actions.before.add_method({
+  name: "getting off non-supporter",
+  when: (action) => action.verb === "getting off",
+  handle: function (action) {
+    this.next();
+    actions.setup_action(action);
+    if (world.is_a(action.dobj, "room")) {
+      throw new abort_action("There's nothing to get off of.");
+    }
+    if (!world.is_a(action.dobj, "supporter")) {
+      out.write("{Bobs} {can't} get off of "); out.the(action.dobj); out.write(".");
+      throw new abort_action();
+    }
+  }
+});
+
+actions.before.add_method({
+  name: "getting off needs destination",
+  when: (action) => action.verb === "getting off",
+  handle: function (action) {
+    this.next();
+    actions.setup_action(action);
+    if (!world.parent_enterable(action.dobj)) {
+      // This really should never happen.
+      throw new abort_action("There's nowhere to get off to.");
+    }
+  }
+});
+
+actions.carry_out.add_method({
+  name: "getting off",
+  when: (action) => action.verb === "getting off",
+  handle: function (action) {
+    actions.setup_action(action);
+    world.put_in(world.actor, world.parent_enterable(action.dobj));
+  }
+});
+
+actions.report.add_method({
+  name: "getting off",
+  when: (action) => action.verb === "getting off",
+  handle: function (action) {
+    out.write("{Bobs} {get} off of "); out.the(action.dobj); out.write(".");
+  }
+});
+
+//// Opening
+
+function opening(x) {
+  return {verb: "opening", dobj: x};
+}
+def_verb("opening", "open", "opening");
+
+/* This is anything instead of something because we need to be able to
+refer to a box we're in even if there's no light! */
+parser.action.understand("open [anything x]", parse => opening(parse.x));
+
+all_are_mistakes(["open"],
+                 "{Bobs} {need} to be opening something in particular.");
+
+require_dobj_accessible("opening");
+
+actions.verify.add_method({
+  name: "opening closed openable",
+  when: (action) => action.verb === "opening" && world.openable(action.dobj) && !world.is_open(action.dobj),
+  handle: function (action) {
+    return verification.join(this.next(), very_logical_action());
+  }
+});
+
+actions.verify.add_method({
+  name: "opening openable",
+  when: (action) => action.verb === "opening" && world.openable(action.dobj),
+  handle: function (action) {
+    return verification.join(this.next(), logical_action());
+  }
+});
+
+actions.verify.add_method({
+  name: "can't open what is not accessible, unless we're in it",
+  when: (action) => action.verb === "opening" && !world.accessible_to(action.dobj, world.actor),
+  handle: function (action) {
+    var reason = illogical_not_visible("{Bobs} {can} see no such thing.");
+    return verification.join(this.next(), reason);
+  }
+});
+
+actions.before.add_method({
+  name: "can't open unopenable",
+  when: (action) => action.verb === "opening" && !world.openable(action.dobj),
+  handle: function (action) {
+    this.next();
+    throw new abort_action(world.no_open_msg(action.dobj, "no_open"));
+  }
+});
+
+actions.before.add_method({
+  name: "can't open locked",
+  when: (action) => action.verb === "opening" && world.lockable(action.dobj) && world.is_locked(action.dobj),
+  handle: function (action) {
+    this.next();
+    throw new abort_action(world.no_lock_msg(action.dobj, "no_open"));
+  }
+});
+
+actions.before.add_method({
+  name: "can't open already open",
+  when: (action) => (action.verb === "opening" && world.openable(action.dobj)
+                     && world.is_open(action.dobj)),
+  handle: function (action) {
+    this.next();
+    throw new abort_action(world.no_open_msg(action.dobj, "already_open"));
+  }
+});
+
+actions.carry_out.add_method({
+  name: "open default",
+  when: (action) => action.verb === "opening",
+  handle: function (action) {
+    world.is_open.set(action.dobj, true);
+  }
+});
+
+actions.report.add_method({
+  name: "open default",
+  when: (action) => action.verb === "opening",
+  handle: function (action) {
+    out.write("You open "); out.the(action.dobj);
+    if (world.is_a(action.dobj, "container")) {
+      var contents = world.contents(action.dobj).filter(c => c !== world.actor && world.reported(c));
+      if (contents.length) {
+        out.write(" revealing ");
+        out.serial_comma(contents);
+      }
+    }
+    out.write(".");
+  }
+});
+
+//// Closing
+
+function closing(x) {
+  return {verb: "closing", dobj: x};
+}
+def_verb("closing", "close", "closing");
+
+parser.action.understand("close [something x]", parse => closing(parse.x));
+
+all_are_mistakes(["close"],
+                 "{Bobs} {need} to be closing something in particular.");
+
+require_dobj_accessible("closing");
+
+actions.verify.add_method({
+  name: "closing open openable",
+  when: (action) => action.verb === "closing" && world.openable(action.dobj) && world.is_open(action.dobj),
+  handle: function (action) {
+    return verification.join(this.next(), very_logical_action());
+  }
+});
+
+actions.verify.add_method({
+  name: "closing openable",
+  when: (action) => action.verb === "closing" && world.openable(action.dobj),
+  handle: function (action) {
+    return verification.join(this.next(), logical_action());
+  }
+});
+
+actions.before.add_method({
+  name: "can't close unopenable",
+  when: (action) => action.verb === "closing" && !world.openable(action.dobj),
+  handle: function (action) {
+    this.next();
+    throw new abort_action(world.no_open_msg(action.dobj, "no_close"));
+  }
+});
+
+actions.before.add_method({
+  name: "can't close already closed",
+  when: (action) => (action.verb === "closing" && world.openable(action.dobj)
+                     && !world.is_open(action.dobj)),
+  handle: function (action) {
+    this.next();
+    throw new abort_action(world.no_open_msg(action.dobj, "already_closed"));
+  }
+});
+
+actions.carry_out.add_method({
+  name: "closing default",
+  when: (action) => action.verb === "closing",
+  handle: function (action) {
+    world.is_open.set(action.dobj, false);
+  }
+});
+
+actions.report.add_method({
+  name: "close default",
+  when: (action) => action.verb === "closing",
+  handle: function (action) {
+    out.write("You close "); out.the(action.dobj); out.write(".");
   }
 });

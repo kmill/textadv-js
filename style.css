@@ -4,14 +4,19 @@ a.action {
 a.action:hover {
     color: #448;
 }
-span.location_heading {
+div.location_heading {
     /*  font-weight: bold; */
     font-size: 120%;
     font-family: sans-serif;
+    margin-block-start: 1.5em;
+    margin-block-end: 1em;
 }
-span.game_title {
+div.game_title {
     font-weight: bold;
     font-size: 150%;
+    font-family: sans-serif;
+    margin-block-start: 1.5em;
+    margin-block-end: 0.5em;
 }
 .user_response {
 /*    overflow: hidden;*/
