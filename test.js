@@ -17,6 +17,11 @@ def_obj("player", "person", {
 });
 world.put_in("player", "Lobby");
 
+def_obj("strange smell", "backdrop", {
+  backdrop_locations: "everywhere",
+  description: "A strange smell that you can't place. It seems to linger wherever you go."
+});
+
 def_obj("photo ID", "thing", {
   added_words: ["@identification"],
   description: `It's your photo ID, which gives you access to TestWorld.  When you rock it
@@ -29,18 +34,19 @@ def_obj("Lobby", "room", {
   description: `You're in the lobby area for TestWorld, a laboratory for
 the [enter_inline code]textadv-js[leave] interactive fiction engine.  So long as
 you have your photo id, you have free access to the entire premises.
-There is a restroom to the [dir west].
-
-[para]To the [dir north] is the ball pit.
-
-[para]You see [a sign] on the wall.`
+There is a restroom to the [dir west], to the [dir north] is the ball pit, and to the [dir east] is Container Alley.`
 });
 make_known("Lobby Restroom");
 make_known("Ball Pit");
+make_known("Container Alley");
+world.connect_rooms("Lobby", "west", "Lobby Restroom", {via: "restroom door"});
+world.connect_rooms("Lobby", "north", "Ball Pit");
+world.connect_rooms("Lobby", "east", "Container Alley");
 
 def_obj("sign", "thing", {
   description: `It says "0 days since last accident." Sounds about right.`,
-  is_scenery: true
+  is_scenery: true,
+  reported: true
 }, {put_in: "Lobby"});
 
 def_obj("chair", "supporter", {
@@ -62,29 +68,191 @@ def_obj("booster chair", "supporter", {
   enterable: true
 }, {put_in: "chair"});
 
-def_obj("cardboard box", "container", {
-  description: "It's a cardboard box, big enough to hide in.",
-  enterable: true,
-  openable: true,
-  is_open: true
-}, {put_in: "chair"});
-
+/*** The lobby restroom **/
 
 def_obj("Lobby Restroom", "room", {
   added_words: ["bathroom"],
-  description: `It's a standard institutional single-occupancy restroom,
-just to the west of the main lobby.`
+  description: function () {
+    out.write(`It's a standard institutional single-occupancy restroom,
+just to the west of the main lobby.`);
+    if (world.is_switched_on("sink")) {
+      out.write(" You hear the sound of running water.");
+    }
+  }
 });
 def_obj("restroom door", "door", {
   added_words: ["bathroom"],
   is_scenery: true,
   description: "A black door with a sign indicating it's for a single-occupancy restroom."
 });
-world.connect_rooms("Lobby", "west", "Lobby Restroom", {via: "restroom door"});
+
+def_obj("toilet", "thing", {
+  description: "A porcelain toilet, ready for use."
+}, {put_in: "Lobby Restroom"});
+
+world.global.set("dirty hands", false);
+
+actions.before.add_method({
+  when: action => action.verb === "using" && action.dobj === "toilet",
+  handle: action => {
+    if (world.is_open("restroom door")) {
+      throw new abort_action("The restroom door is open. Better be more discreet.");
+    }
+  }
+});
+actions.carry_out.add_method({
+  when: action => action.verb === "using" && action.dobj === "toilet",
+  handle: function (action) {
+    world.global.set("dirty hands", true);
+  }
+});
+actions.report.add_method({
+  when: action => action.verb === "using" && action.dobj === "toilet",
+  handle: function (action) {
+    out.write("{Bobs} {relieve} {ourself}.");
+  }
+});
+
+actions.before.add_method({
+  when: action => (action.verb === "going" && world.location(world.actor) === "Lobby Restroom"
+                   && world.global("dirty hands")),
+  handle: function (action) {
+    throw new abort_action("You can't leave with dirty hands.");
+  }
+});
+
+actions.before.add_method({
+  when: action => (action.verb === "going" && world.location(world.actor) === "Lobby Restroom"
+                   && world.is_switched_on("sink")),
+  handle: function (action) {
+    throw new abort_action("The sink is still running!");
+  }
+});
+
+def_obj("sink", "thing", {
+  added_words: ["@faucet"],
+  switchable: true,
+  description: "A sink with a faucet."
+}, {put_in: "Lobby Restroom"});
+
+parser.action.understand("wash hands", (parse) => {
+  if (world.containing_room(world.actor) === "Lobby Restroom") {
+    return using("sink");
+  } else {
+    return void 0;
+  }
+});
+parser.action.understand("wash hands in [obj sink]", (parse) => {
+  if (world.containing_room(world.actor) === "Lobby Restroom") {
+    return using("sink");
+  } else {
+    return void 0;
+  }
+});
+parser.action.understand("wash hands in [obj toilet]", (parse) => {
+  if (world.containing_room(world.actor) === "Lobby Restroom") {
+    return making_mistake("Disgusting.");
+  } else {
+    return void 0;
+  }
+});
+
+actions.before.add_method({
+  when: action => action.verb === "using" && action.dobj === "sink",
+  handle: function (action) {
+    if (!world.is_switched_on("sink")) {
+      throw new abort_action("The sink needs to be turned on.");
+    }
+  }
+});
+actions.carry_out.add_method({
+  when: action => action.verb === "using" && action.dobj === "sink",
+  handle: function (action) {
+    world.global.set("dirty hands", false);
+  }
+});
+actions.report.add_method({
+  when: action => action.verb === "using" && action.dobj === "sink",
+  handle: function (action) {
+    out.write("{Bobs} {wash} {our} hands thoroughly.");
+  }
+});
+
+/*** The ball pit ***/
 
 def_obj("Ball Pit", "room", {
+  description: "The name of the room is the ball pit, but it's more a room with more than a few balls. You can go [dir south] back to the lobby."
 });
-world.connect_rooms("Lobby", "north", "Ball Pit");
+
+def_obj("ball1", "thing", {
+  name: "big red ball"
+}, {put_in: "Ball Pit"});
+
+def_obj("ball2", "thing", {
+  name: "small red ball"
+}, {put_in: "Ball Pit"});
+
+def_obj("ball3", "thing", {
+  name: "big blue ball"
+}, {put_in: "Ball Pit"});
+
+def_obj("ball4", "thing", {
+  name: "small blue ball"
+}, {put_in: "Ball Pit"});
+
+def_obj("ball5", "thing", {
+  name: "big green ball"
+}, {put_in: "Ball Pit"});
+
+def_obj("ball6", "thing", {
+  name: "small green ball"
+}, {put_in: "Ball Pit"});
+
+def_obj("ball7", "thing", {
+  name: "big yellow ball"
+}, {put_in: "Ball Pit"});
+
+def_obj("ball8", "thing", {
+  name: "small yellow ball"
+}, {put_in: "Ball Pit"});
+
+/*** Container Alley ***/
+
+def_obj("Container Alley", "room", {
+  description: "In addition to containers, there are also some supporters here.  The lobby is back to the [dir west]."
+});
+
+def_obj("cardboard box", "container", {
+  description: "It's a cardboard box, big enough to hide in and close.",
+  enterable: true,
+  openable: true,
+  is_open: true,
+  locale_description: "You think cozy thoughts as you hide in this cozy cardboard box."
+}, {put_in: "Container Alley"});
+
+def_obj("plastic box", "container", {
+  description: "It's a box made of translucent plastic sheets, big enough to hide in and close.",
+  added_words: ["translucent"],
+  enterable: true,
+  openable: true,
+  is_opaque: false
+}, {put_in: "Container Alley"});
+
+def_obj("cubby", "container", {
+  description: "A box that can't be closed.  It's big enough to enter.",
+  enterable: true,
+}, {put_in: "Container Alley"});
+
+def_obj("small box", "container", {
+  description: "A small open box made of pine."
+}, {put_in: "Container Alley"});
+
+def_obj("table", "supporter", {
+  description: "It's just a table, made of wood.",
+  fixed_in_place: true,
+  no_take_msg: "The table is too large to comfortably carry, so you won't try.",
+  enterable: true
+}, {put_in: "Container Alley"});
 
 /*
 def_obj("plain door", "door", {

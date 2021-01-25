@@ -1126,9 +1126,12 @@ world.accessible_to.add_method({
   handle: function (x, actor) {
     /* This helps prevents accidentally trapping oneself inside something without light. */
     var loc = world.location(actor);
-    while (loc) {
+    while (loc && world.is_a(loc, "thing")) {
       if (loc === x) {
         return true;
+      }
+      if (world.openable(loc) && !world.is_open(loc)) {
+        break;
       }
       loc = world.location(loc);
     }
@@ -1778,17 +1781,17 @@ def_property("no_switch_msg", 2, {
 world.no_switch_msg.add_method({
   name: "no_switch default",
   when: (o, type) => type === "no_switch",
-  handle: (o, type) => `{Bob} can't switch that.`
+  handle: (o, type) => `{Bobs} can't switch that.`
 });
 world.no_switch_msg.add_method({
   name: "no_switch_on default",
   when: (o, type) => type === "no_switch_on",
-  handle: (o, type) => `{Bob} can't switch that on.`
+  handle: (o, type) => `{Bobs} can't switch that on.`
 });
 world.no_switch_msg.add_method({
   name: "no_switch_off default",
   when: (o, type) => type === "no_switch_off",
-  handle: (o, type) => `{Bob} can't switch that off.`
+  handle: (o, type) => `{Bobs} can't switch that off.`
 });
 world.no_switch_msg.add_method({
   name: "already_on default",
@@ -2485,7 +2488,7 @@ world.describe_object.add_method({
       out.para();
     }
     world.describe_object.described = true;
-    out.We(o); out.write(" is currently switched ");
+    out.write(str_util.cap(world.subject_pronoun(o)), " is currently switched ");
     out.write(world.is_switched_on_msg(o)); out.write(".");
   }
 });
@@ -3517,6 +3520,9 @@ parser_match objects.`,
           var v;
           if (result) {
             v = result(parse);
+            if (v === void 0) {
+              continue;
+            }
             if (!(v instanceof parser_match)) {
               v = new parser_match(m.start, m.end, v, m.score);
             }
@@ -3864,6 +3870,16 @@ world.start_game.add_method({
   handle: () => {}
 });
 world.start_game.add_method({
+  name: "move backdrops",
+  handle: function () {
+    this.next();
+    var room = world.containing_room(world.actor);
+    if (room) {
+      world.move_backdrops(room);
+    }
+  }
+});
+world.start_game.add_method({
   name: "Print game description",
   handle: function () {
     this.next();
@@ -3935,8 +3951,19 @@ world.step_turn.add_method({
   handle: () => {}
 });
 world.step_turn.add_method({
+  name: "move backdrops",
+  handle: function () {
+    this.next();
+    var room = world.containing_room(world.actor);
+    if (room) {
+      world.move_backdrops(room);
+    }
+  }
+});
+world.step_turn.add_method({
   name: "describe location",
   handle: function () {
+    this.next();
     if (world.should_describe_location()) {
       world.describe_current_location();
       world.save_current_location();
@@ -4019,6 +4046,11 @@ function* game_loop() {
         continue main;
       }
 
+      // making mistake is a special case
+      if (verified.some(v => v.match.value.verb === "making mistake")) {
+        verified = verified.filter(v => v.match.value.verb === "making mistake");
+      }
+
       if (verified.every(v => !v.verification.is_reasonable())) {
         // Go for the worst one unreasonable action then.
         action = verified[0].match.value;
@@ -4087,8 +4119,9 @@ function* game_loop() {
         }
       } else {
         out.para();
-        out.write_text("[Internal error]");
-        throw x;
+        out.write_text("[Internal error. Proceed at your own risk.]");
+        console.error(x, x.stack);
+        continue main;
       }
     }
     world.step_turn();
@@ -4120,7 +4153,7 @@ function start_game_loop() {
 //// Making a mistake (user error)
 
 /* This is mainly used to parse things as errors.  It can also be used to give amusing
-   responses for certain inputs without having to go through defining a verb. */
+   responses for certain inputs without having to go through the effort of defining a verb. */
 
 function making_mistake(reason) {
   return {verb: "making mistake", reason: reason};
@@ -4441,6 +4474,171 @@ actions.report.add_method({
     out.write("Dropped.");
   }
 });
+
+//// Inserting into
+
+function inserting_into(x, y) {
+  return {verb: "inserting into", dobj: x, iobj: y};
+}
+def_verb("inserting into", "insert", "inserting", "into");
+
+parser.action.understand("put/place/insert/drop/set [something x] in/into [something y]",
+                         parse => inserting_into(parse.x, parse.y));
+
+all_are_mistakes(["insert"], "{Bobs} {need} to be inserting something in particular.");
+all_are_mistakes(["insert [something x]", "insert [something x] in/into"],
+                 "{Bobs} {need} to be inserting that into something in particular.");
+
+require_dobj_held("inserting into");
+require_iobj_accessible("inserting into");
+
+actions.verify.add_method({
+  name: "inserting into self",
+  when: action => action.verb === "inserting into" && action.iobj === action.dobj,
+  handle: function (action) {
+    return verification.join(this.next(),
+                             illogical_action("{Bobs} {can't} put that into itself."));
+  }
+});
+actions.before.add_method({
+  name: "inserting into contents",
+  when: action => action.verb === "inserting into",
+  handle: function (action) {
+    this.next();
+    var loc = world.location(action.iobj);
+    while (loc && !world.is_a(loc, "room")) {
+      if (loc === action.dobj) {
+        out.write("{Bobs} {will} have to remove ");
+        out.the(action.iobj);
+        out.write(" from ");
+        out.the(action.dobj);
+        out.write(" first.");
+        throw new abort_action();
+      }
+      loc = world.location(loc);
+    }
+  }
+});
+actions.before.add_method({
+  name: "inserting into closed",
+  when: action => (action.verb === "inserting into" && world.openable(action.iobj)
+                   && !world.is_open(action.iobj)),
+  handle: function (action) {
+    actions.do_first(opening(action.iobj), {silently: true});
+    if (!world.is_open(action.iobj)) {
+      out.The(action.iobj); out.write(" is closed.");
+      throw new abort_action();
+    }
+    this.next();
+  }
+});
+actions.before.add_method({
+  name: "inserting into non-container",
+  when: action => action.verb === "inserting into" && !world.is_a(action.iobj, "container"),
+  handle: function (action) {
+    out.write("{Bobs} {can't} put "); out.the(action.dobj); out.write(" into ");
+    out.the(action.iobj); out.write(".");
+    throw new abort_action();
+  }
+});
+actions.before.add_method({
+  name: "inserting into supporter",
+  when: action => action.verb === "inserting into" && world.is_a(action.iobj, "supporter"),
+  handle: function (action) {
+    throw new do_instead(placing_on(action.dobj, action.iobj));
+  }
+});
+actions.carry_out.add_method({
+  name: "inserting into",
+  when: action => action.verb === "inserting into",
+  handle: function (action) {
+    world.put_in(action.dobj, action.iobj);
+  }
+});
+actions.report.add_method({
+  name: "inserting into",
+  when: action => action.verb === "inserting into",
+  handle: function (action) {
+    out.write("{Bobs} {put} "); out.the(action.dobj); out.write(" into ");
+    out.the(action.iobj); out.write(".");
+  }
+});
+
+//// Placing on
+
+function placing_on(x, y) {
+  return {verb: "placing on", dobj: x, iobj: y};
+}
+def_verb("placing on", "place", "placing", "on");
+
+parser.action.understand("put/place/drop/set [something x] on/onto [something y]",
+                         parse => placing_on(parse.x, parse.y));
+
+all_are_mistakes(["place/drop/set [something x] on", "put/place/drop/set [something x] onto"],
+                 "{Bobs} {need} to be placing that onto something in particular.");
+
+require_dobj_held("placing on");
+require_iobj_accessible("placing on");
+
+actions.verify.add_method({
+  name: "placing on self",
+  when: action => action.verb === "placing on" && action.iobj === action.dobj,
+  handle: function (action) {
+    return verification.join(this.next(),
+                             illogical_action("{Bobs} {can't} place that on itself."));
+  }
+});
+actions.before.add_method({
+  name: "placing on contents",
+  when: action => action.verb === "placing on",
+  handle: function (action) {
+    this.next();
+    var loc = world.location(action.iobj);
+    while (loc && !world.is_a(loc, "room")) {
+      if (loc === action.dobj) {
+        out.write("{Bobs} {will} have to take ");
+        out.the(action.iobj);
+        out.write(" off ");
+        out.the(action.dobj);
+        out.write(" first.");
+        throw new abort_action();
+      }
+      loc = world.location(loc);
+    }
+  }
+});
+actions.before.add_method({
+  name: "placing on non-supporter",
+  when: action => action.verb === "placing on" && !world.is_a(action.iobj, "supporter"),
+  handle: function (action) {
+    out.write("{Bobs} {can't} place "); out.the(action.dobj); out.write(" on ");
+    out.the(action.iobj); out.write(".");
+    throw new abort_action();
+  }
+});
+actions.before.add_method({
+  name: "placing on container",
+  when: action => action.verb === "placing on" && world.is_a(action.iobj, "container"),
+  handle: function (action) {
+    throw new do_instead(inserting_into(action.dobj, action.iobj));
+  }
+});
+actions.carry_out.add_method({
+  name: "placing on",
+  when: action => action.verb === "placing on",
+  handle: function (action) {
+    world.put_in(action.dobj, action.iobj);
+  }
+});
+actions.report.add_method({
+  name: "placing on",
+  when: action => action.verb === "placing on",
+  handle: function (action) {
+    out.write("{Bobs} {place} "); out.the(action.dobj); out.write(" onto ");
+    out.the(action.iobj); out.write(".");
+  }
+});
+
 
 //// Going
 
@@ -4886,6 +5084,16 @@ actions.report.add_method({
   }
 });
 
+actions.report.add_method({
+  name: "entering give locale description",
+  when: (action) => action.verb === "entering",
+  handle: function (action) {
+    this.next();
+    out.para();
+    out.write(world.locale_description(action.dobj));
+  }
+});
+
 //// Exiting
 
 function exiting(/*opt*/x) {
@@ -4914,7 +5122,8 @@ actions.verify.add_method({
   when: (action) => action.verb === "exiting",
   handle: function (action) {
     actions.setup_action(action);
-    if (!world.is_a(action.dobj, "container") && !world.is_a(action.dobj, "supporter")) {
+    if (!world.is_a(action.dobj, "container") && !world.is_a(action.dobj, "supporter")
+        && !world.is_a(action.dobj, "room")) {
       return verification.join(this.next(),
                                illogical_action("That's not something {bobs} can exit."));
     } else {
@@ -4956,6 +5165,10 @@ actions.try_before.add_method({
     this.next();
     actions.setup_action(action);
     if (world.is_a(action.dobj, "room")) {
+      let exits = world.exits(action.dobj);
+      if (exits.length === 1) {
+        throw new do_instead(going(exits[0].tag));
+      }
       throw new do_instead(going("out"));
     }
   }
@@ -5017,7 +5230,7 @@ actions.report.add_method({
   name: "exiting",
   when: (action) => action.verb === "exiting",
   handle: function (action) {
-    out.write("{Bobs} {get} gets out of "); out.the(action.dobj); out.write(".");
+    out.write("{Bobs} {get} out of "); out.the(action.dobj); out.write(".");
   }
 });
 
@@ -5288,5 +5501,329 @@ actions.report.add_method({
   when: (action) => action.verb === "closing",
   handle: function (action) {
     out.write("You close "); out.the(action.dobj); out.write(".");
+  }
+});
+
+//// Switching on
+
+function switching_on(x) {
+  return {verb: "switching on", dobj: x};
+}
+def_verb("switching on", "switch on", "switching on");
+
+parser.action.understand("switch/turn on [something x]", parse => switching_on(parse.x));
+parser.action.understand("switch/turn [something x] on", parse => switching_on(parse.x));
+
+all_are_mistakes(["switch/turn on"],
+                 "{Bobs} {need} to be switching on something in particular.");
+
+require_dobj_accessible("switching on");
+
+actions.verify.add_method({
+  name: "switching on switched off",
+  when: (action) => (action.verb === "switching on" && world.switchable(action.dobj)
+                     && !world.is_switched_on(action.dobj)),
+  handle: function (action) {
+    return verification.join(this.next(), very_logical_action());
+  }
+});
+
+actions.verify.add_method({
+  name: "switching on switchable",
+  when: (action) => action.verb === "switching on" && world.switchable(action.dobj),
+  handle: function (action) {
+    return verification.join(this.next(), logical_action());
+  }
+});
+
+actions.before.add_method({
+  name: "can't switch on unswitchable",
+  when: (action) => action.verb === "switching on" && !world.switchable(action.dobj),
+  handle: function (action) {
+    this.next();
+    throw new abort_action(world.no_switch_msg(action.dobj, "no_switch_on"));
+  }
+});
+
+actions.before.add_method({
+  name: "can't switch on already on",
+  when: (action) => (action.verb === "switching on" && world.switchable(action.dobj)
+                     && world.is_switched_on(action.dobj)),
+  handle: function (action) {
+    this.next();
+    throw new abort_action(world.no_switch_msg(action.dobj, "already_on"));
+  }
+});
+
+actions.carry_out.add_method({
+  name: "switching on default",
+  when: (action) => action.verb === "switching on",
+  handle: function (action) {
+    world.is_switched_on.set(action.dobj, true);
+  }
+});
+
+actions.report.add_method({
+  name: "switching on default",
+  when: (action) => action.verb === "switching on",
+  handle: function (action) {
+    out.write("Switched on.");
+  }
+});
+
+//// Switching off
+
+function switching_off(x) {
+  return {verb: "switching off", dobj: x};
+}
+def_verb("switching off", "switch off", "switching off");
+
+parser.action.understand("switch/turn off [something x]", parse => switching_off(parse.x));
+parser.action.understand("switch/turn [something x] off", parse => switching_off(parse.x));
+
+all_are_mistakes(["switch/turn off"],
+                 "{Bobs} {need} to be switching off something in particular.");
+
+require_dobj_accessible("switching off");
+
+actions.verify.add_method({
+  name: "switching off switched on",
+  when: (action) => (action.verb === "switching off" && world.switchable(action.dobj)
+                     && world.is_switched_on(action.dobj)),
+  handle: function (action) {
+    return verification.join(this.next(), very_logical_action());
+  }
+});
+
+actions.verify.add_method({
+  name: "switching off switchable",
+  when: (action) => action.verb === "switching off" && world.switchable(action.dobj),
+  handle: function (action) {
+    return verification.join(this.next(), logical_action());
+  }
+});
+
+actions.before.add_method({
+  name: "can't switch off unswitchable",
+  when: (action) => action.verb === "switching off" && !world.switchable(action.dobj),
+  handle: function (action) {
+    this.next();
+    throw new abort_action(world.no_switch_msg(action.dobj, "no_switch_off"));
+  }
+});
+
+actions.before.add_method({
+  name: "can't switch off already off",
+  when: (action) => (action.verb === "switching off" && world.switchable(action.dobj)
+                     && !world.is_switched_on(action.dobj)),
+  handle: function (action) {
+    this.next();
+    throw new abort_action(world.no_switch_msg(action.dobj, "already_off"));
+  }
+});
+
+actions.carry_out.add_method({
+  name: "switching off default",
+  when: (action) => action.verb === "switching off",
+  handle: function (action) {
+    world.is_switched_on.set(action.dobj, false);
+  }
+});
+
+actions.report.add_method({
+  name: "switching off default",
+  when: (action) => action.verb === "switching off",
+  handle: function (action) {
+    out.write("Switched off.");
+  }
+});
+
+//// Switching
+
+function switching(x) {
+  return {verb: "switching", dobj: x};
+}
+def_verb("switching", "switch", "switching");
+
+parser.action.understand("switch/turn/toggle [something x]", parse => switching(parse.x));
+
+all_are_mistakes(["switch/turn/toggle"],
+                 "{Bobs} {need} to be toggling something in particular.");
+
+require_dobj_accessible("switching");
+
+actions.verify.add_method({
+  name: "switching switchable",
+  when: (action) => action.verb === "switching" && world.switchable(action.dobj),
+  handle: function (action) {
+    return verification.join(this.next(), very_logical_action());
+  }
+});
+
+actions.before.add_method({
+  name: "switching unswitchable",
+  when: (action) => action.verb === "switching" && !world.switchable(action.dobj),
+  handle: function (action) {
+    this.next();
+    throw new abort_action(world.no_switch_msg(action.dobj, "no_switch"));
+  }
+});
+
+actions.before.add_method({
+  name: "switching switchable",
+  when: (action) => action.verb === "switching" && world.switchable(action.dobj),
+  handle: function (action) {
+    this.next();
+    if (world.is_switched_on(action.dobj)) {
+      throw new do_instead(switching_off(action.dobj), true);
+    } else {
+      throw new do_instead(switching_on(action.dobj), true);
+    }
+  }
+});
+
+
+//// Using
+
+/* Generic interaction with a thing. */
+
+function using(x) {
+  return {verb: "using", dobj: x};
+}
+def_verb("using", "use", "using");
+
+parser.action.understand("use [something x]", parse => using(parse.x));
+
+all_are_mistakes(["use"],
+                 "{Bobs} {need} to be using something in particular.");
+
+require_dobj_accessible("using");
+
+actions.before.add_method({
+  name: "using default",
+  when: action => action.verb === "using",
+  handle: function (action) {
+    throw new abort_action("{Bobs} {aren't} sure how to use that.");
+  }
+});
+
+// The following are in an arbitrary order
+
+actions.before.add_method({
+  name: "using enterable",
+  when: action => action.verb === "using" && world.enterable(action.dobj),
+  handle: function (action) {
+    throw new do_instead(entering(action.dobj));
+  }
+});
+
+actions.before.add_method({
+  name: "using open openable",
+  when: action => (action.verb === "using" && world.openable(action.dobj)
+                   && world.is_open(action.dobj)),
+  handle: function (action) {
+    throw new do_instead(closing(action.dobj));
+  }
+});
+
+actions.before.add_method({
+  name: "using closed openable",
+  when: action => (action.verb === "using" && world.openable(action.dobj)
+                   && !world.is_open(action.dobj)),
+  handle: function (action) {
+    throw new do_instead(opening(action.dobj));
+  }
+});
+
+actions.before.add_method({
+  name: "using switchable",
+  when: action => action.verb === "using" && world.switchable(action.dobj),
+  handle: function (action) {
+    throw new do_instead(switching(action.dobj));
+  }
+});
+
+//// Waiting
+
+function waiting() {
+  return {verb: "waiting"};
+}
+def_verb("waiting", "wait", "waiting");
+
+parser.action.understand("wait/z", parse => waiting());
+
+actions.report.add_method({
+  name: "waiting",
+  when: action => action.verb === "waiting",
+  handle: function (action) {
+    out.write("Time passes.");
+  }
+});
+
+//// Greeting
+
+function greeting() {
+  return {verb: "greeting"};
+}
+def_verb("greeting", "greet", "greeting");
+
+parser.action.understand("greet/hi/hello", parse => greeting());
+
+actions.report.add_method({
+  name: "greeting",
+  when: action => action.verb === "greeting",
+  handle: function (action) {
+    out.write("{Bobs} {say} hi.");
+  }
+});
+
+//// Jumping
+
+function jumping() {
+  return {verb: "jumping"};
+}
+def_verb("jumping", "jump", "jumping");
+
+parser.action.understand("jump", parse => jumping());
+
+actions.report.add_method({
+  name: "jumping",
+  when: action => action.verb === "jumping",
+  handle: function (action) {
+    out.write("{Bobs} {jump} in place.");
+  }
+});
+
+//// Singing
+
+function singing() {
+  return {verb: "singing"};
+}
+def_verb("singing", "sing", "singing");
+
+parser.action.understand("sing", parse => singing());
+
+actions.report.add_method({
+  name: "singing",
+  when: action => action.verb === "singing",
+  handle: function (action) {
+    out.write("{Bobs} {sing} to {ourself} quietly.");
+  }
+});
+
+//// Laughing
+
+function laughing() {
+  return {verb: "laughing"};
+}
+def_verb("laughing", "laugh", "laughing");
+
+parser.action.understand("laugh/lol/ha/haha/hahaha/hahahaha", parse => laughing());
+
+actions.report.add_method({
+  name: "laughing",
+  when: action => action.verb === "laughing",
+  handle: function (action) {
+    out.write("{Bobs} {laugh} to {ourself} quietly.");
   }
 });
