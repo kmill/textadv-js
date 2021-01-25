@@ -4082,7 +4082,7 @@ function* game_loop() {
             var best_actions = best_matches.map(m => m.value);
             if (best_actions.length > 6) {
               // This seems like a horrible mistake happened, so let's not try.
-              out.write("[Your input was surprisingly ambiguous.]");
+              out.write_text("[Your input was surprisingly ambiguous.]");
               continue main;
             }
             function cmp_str(s1, s2) { if (s1 < s2) return -1; else if (s1 > s2) return 1; else return 0; }
