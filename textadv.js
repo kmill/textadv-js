@@ -3807,6 +3807,26 @@ parser.frontend.obj = {
   }
 };
 
+def_parser("text", {
+  doc: "Just parse a string of one or more tokens.  Results in part of the original string."
+});
+parser.frontend.text = {
+  make_parser([v]) {
+    return parser.text;
+  },
+  process([v], parse, match) {
+    parse[v] = match.value;
+  }
+};
+parser.text.add_method({
+  name: "main parser",
+  handle: function* (cache, s, toks, i) {
+    for (let j = i; j < toks.length; j++) {
+      yield new parser_match(i, j + 1, s.slice(toks[i].start, toks[j].end), 1);
+    }
+  }
+});
+
 def_parser("direction", {
   doc: "The parser for directions"
 });

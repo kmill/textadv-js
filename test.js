@@ -17,6 +17,8 @@ def_obj("player", "person", {
 });
 world.put_in("player", "Lobby");
 
+parser.action.understand("say [text x]", parse => making_mistake("You said: " + parse.x));
+
 def_obj("strange smell", "backdrop", {
   backdrop_locations: "everywhere",
   description: "A strange smell that you can't place. It seems to linger wherever you go."
