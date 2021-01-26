@@ -5460,21 +5460,21 @@ actions.before.add_method({
 });
 
 actions.before.add_method({
-  name: "can't open locked",
-  when: (action) => action.verb === "opening" && world.lockable(action.dobj) && world.is_locked(action.dobj),
-  handle: function (action) {
-    this.next();
-    throw new abort_action(world.no_lock_msg(action.dobj, "no_open"));
-  }
-});
-
-actions.before.add_method({
   name: "can't open already open",
   when: (action) => (action.verb === "opening" && world.openable(action.dobj)
                      && world.is_open(action.dobj)),
   handle: function (action) {
     this.next();
     throw new abort_action(world.no_open_msg(action.dobj, "already_open"));
+  }
+});
+
+actions.before.add_method({
+  name: "can't open locked",
+  when: (action) => action.verb === "opening" && world.lockable(action.dobj) && world.is_locked(action.dobj),
+  handle: function (action) {
+    this.next();
+    throw new abort_action(world.no_lock_msg(action.dobj, "no_open"));
   }
 });
 
