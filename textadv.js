@@ -156,7 +156,7 @@ function def_property(name, arity, options) {
   world[name] = make_generic_function(name, {
     on_call: function() {
       if (arguments.length !== arity) {
-        throw new TypeError("Expecting " + arity + " arguments");
+        throw new TypeError(name + " expecting " + arity + " arguments");
       }
       let values = data;
       for (let i = 0; i < arguments.length; i++) {
@@ -1222,7 +1222,7 @@ world.is_edible.add_method({
 
 world.put_in.add_method({
   name: "not for doors",
-  when: (x) => world.is_a(x, "door"),
+  when: (x) => world.kind(x) && world.is_a(x, "door"),
   handle: function (x) {
     throw new TypeError("Use connect_rooms to put a door in a room.");
   }
@@ -3325,7 +3325,7 @@ defines a new cached nonterminal.  Parsers are iterators that yield `parser_matc
 
 var parser = {
   known_words: new Set,
-  /* for [something y] and [object id] commands in understand strings.  Each has
+  /* for [something y] and [obj id] commands in understand strings.  Each has
      two methods: make_parser(args) and process(args, parse, match). */
   frontend: {}
 };
@@ -3790,7 +3790,7 @@ parser.somewhere.add_method({
   }
 });
 
-/* Parse a specific object. */
+/* Parse a specific object that is visible. */
 parser.frontend.obj = {
   make_parser([x]) {
     return function* (cache, s, toks, i) {
