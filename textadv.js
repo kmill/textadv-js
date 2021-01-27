@@ -2,6 +2,8 @@
 // A simple engine for interactive fiction.
 // (c) 2021 Kyle Miller
 
+"use strict";
+
 /*** Generic functions ***/
 
 /*
