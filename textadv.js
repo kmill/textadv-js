@@ -3357,8 +3357,8 @@ function tokenize(s) {
       continue; // skip whitespace
     }
     var j = i;
-    while (j < s.length && s[j].match(/[a-z0-9']/i)) {
-      // a word is a combination of letters, numbers, and apostrophes (for contractions)
+    while (j < s.length && s[j].match(/[a-z0-9'\-]/i)) {
+      // a word is a combination of letters, numbers, hyphens, and apostrophes (for contractions)
       j++;
     }
     if (j === i) {
