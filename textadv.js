@@ -5102,7 +5102,7 @@ actions.try_before.add_method({
   handle: function (action) {
     for (var e of world.exits(world.containing_room(world.actor))) {
       if (e.obj === action.dobj) {
-        throw new do_instead(going(e.tag));
+        throw new do_instead(going(e.tag), true);
       }
     }
     throw new abort_action("{Bobs} {can't} get to that.");
