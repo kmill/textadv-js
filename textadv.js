@@ -3431,13 +3431,23 @@ parser_match objects.`,
       /* yield nothing.  this is a match failure. */
     }
   });
-  parser[name].understand = function (s, result=null) {
+  parser[name].understand = function understand(s, result=null, when=null) {
     /* Given something like understand("take [something x]", (parse) => taking(parse.x)),
        adds a new method to the parser for parsing the exact words outside the brackets and using
        the `parser.frontend` definitions for the things in the square brackets.  The `result` can
        either return a parser_match, which is left as-is, or otherwise the parser_match is
        constructed whose score is the sum of the scores. Slashes can be used for alternation,
-       for example "go/get in/into [somewhere x]". */
+       for example "go/get in/into [somewhere x]".
+
+       The `when` argument optionally gives a condition under which the created parser method should
+       run.  It is passed directly to `add_method`.
+
+       If `s` is an array, then `understand` is applied to each element of `s`.     */
+
+    if (s instanceof Array) {
+      s.forEach(s => understand(s, result, when));
+      return;
+    }
 
     // first parse the text to understand what to understand
     var toks = [];
@@ -3533,6 +3543,7 @@ parser_match objects.`,
     }
     parser[name].add_method({
       name: s,
+      when: when,
       handle: function* (cache, s, toks, i) {
         yield* this.next();
         for (var m of make_parse_seq(parsers)(cache, s, toks, i)) {

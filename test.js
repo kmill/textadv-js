@@ -160,27 +160,12 @@ def_obj("sink", "thing", {
   description: "A sink with a faucet."
 }, {put_in: "Lobby Restroom"});
 
-parser.action.understand("wash hands", (parse) => {
-  if (world.containing_room(world.actor) === "Lobby Restroom") {
-    return using("sink");
-  } else {
-    return void 0;
-  }
-});
-parser.action.understand("wash hands in [obj sink]", (parse) => {
-  if (world.containing_room(world.actor) === "Lobby Restroom") {
-    return using("sink");
-  } else {
-    return void 0;
-  }
-});
-parser.action.understand("wash hands in [obj toilet]", (parse) => {
-  if (world.containing_room(world.actor) === "Lobby Restroom") {
-    return making_mistake("Disgusting.");
-  } else {
-    return void 0;
-  }
-});
+parser.action.understand(["wash hands", "wash hands in [obj sink]"],
+                         (parse) => using("sink"),
+                         (cache, s, toks, i) => world.containing_room(world.actor) === "Lobby Restroom");
+parser.action.understand("wash hands in [obj toilet]",
+                         (parse) => making_mistake("Disgusting."),
+                         (cache, s, toks, i) => world.containing_room(world.actor) === "Lobby Restroom");
 
 actions.before.add_method({
   when: action => action.verb === "using" && action.dobj === "sink",
