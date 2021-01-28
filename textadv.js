@@ -3091,6 +3091,23 @@ class do_instead {
   }
 }
 
+/** Adds a method to the before handler that raises `do_instead`.
+Example:
+```
+instead_of(action => action.verb === "taking" && action.dobj = "ball",
+           action => examining(action.dobj));
+```
+*/
+function instead_of(when, new_action, suppress_message=false) {
+  actions.before.add_method({
+    name: "instead_of " + when,
+    when: when,
+    handle: function (action) {
+      throw new do_instead(new_action(action), suppress_message);
+    }
+  });
+}
+
 class abort_action {
   /* Raised to signal that the action failed. */
   constructor(reason=null) {

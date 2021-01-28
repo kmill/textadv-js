@@ -29,6 +29,9 @@ def_obj("hamburger", "thing", {
   description: "It's just a hamburger sitting there.  Unwrapped, no plate."
 }, {put_in: "Lobby"});
 
+instead_of(action => action.verb === "eating" && action.dobj === "hamburger",
+           action => dropping(action.dobj));
+
 def_obj("photo ID", "thing", {
   added_words: ["@identification"],
   description: `It's your photo ID, which gives you access to TestWorld.  When you rock it
