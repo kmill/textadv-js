@@ -3850,8 +3850,8 @@ parser.direction.understand("northeast/ne", (parse) => "northeast");
 parser.direction.understand("southeast/se", (parse) => "southeast");
 parser.direction.understand("up/u", (parse) => "up");
 parser.direction.understand("down/d", (parse) => "down");
-parser.direction.understand("in", (parse) => "in");
-parser.direction.understand("out", (parse) => "out");
+parser.direction.understand("in/inside", (parse) => "in");
+parser.direction.understand("out/outside/away", (parse) => "out");
 
 def_parser("action", {
   doc: "The main parser for actions"
