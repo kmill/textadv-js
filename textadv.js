@@ -1202,19 +1202,19 @@ world.locale_description.add_method({
   handle: (x) => null
 });
 
-def_property("is_wearable", 1, {
+def_property("wearable", 1, {
   doc: `Represents whether something could be worn by a person.`
 });
-world.is_wearable.add_method({
+world.wearable.add_method({
   doc: "default",
   when: (x) => world.is_a(x, "thing"),
   handle: (x) => false
 });
 
-def_property("is_edible", 1, {
+def_property("edible", 1, {
   doc: `Represents whether something could be eaten.`
 });
-world.is_edible.add_method({
+world.edible.add_method({
   doc: "default",
   when: (x) => world.is_a(x, "thing"),
   handle: (x) => false
@@ -1400,12 +1400,12 @@ def_property("no_lock_msg", 2, {
 world.no_lock_msg.add_method({
   name: "no_lock default",
   when: (o, type) => type === "no_lock",
-  handle: (o, type) => `{Bob} doesn't appear to be lockable.`
+  handle: (o, type) => `That doesn't appear to be lockable.`
 });
 world.no_lock_msg.add_method({
   name: "no_unlock default",
   when: (o, type) => type === "no_unlock",
-  handle: (o, type) => `{Bob} doesn't appear to be unlockable.`
+  handle: (o, type) => `That doesn't appear to be unlockable.`
 });
 world.no_lock_msg.add_method({
   name: "no_open default",
@@ -5569,6 +5569,262 @@ actions.report.add_method({
   }
 });
 
+//// Unlocking with
+
+function unlocking_with(x, y) {
+  return {verb: "unlocking with", dobj: x, iobj: y};
+}
+def_verb("unlocking with", "unlock", "unlocking", "with");
+
+parser.action.understand("unlock/open [something x] with [something y]",
+                         parse => unlocking_with(parse.x, parse.y));
+
+all_are_mistakes(["unlock"], "{Bobs} {need} to be unlocking something in particular");
+
+require_dobj_accessible("unlocking with");
+require_iobj_held("unlocking with");
+
+actions.before.add_method({
+  name: "unlocking not lockable with",
+  when: action => action.verb === "unlocking with" && !world.lockable(action.dobj),
+  handle: function (action) {
+    throw new abort_action(world.no_lock_msg(action.dobj, "no_unlock"));
+  }
+});
+actions.before.add_method({
+  name: "unlocking with wrong key",
+  when: action => (action.verb === "unlocking with" && world.lockable(action.dobj)
+                   && !world.key_of_lock(action.iobj, action.dobj)),
+  handle: function (action) {
+    throw new abort_action(world.wrong_key_msg(action.iobj, action.dobj));
+  }
+});
+actions.before.add_method({
+  name: "unlocking already unlocked with",
+  when: action => (action.verb === "unlocking with" && world.lockable(action.dobj)
+                   && !world.is_locked(action.dobj)),
+  handle: function (action) {
+    throw new abort_action(world.no_lock_msg(action.dobj, "already_unlocked"));
+  }
+});
+
+actions.carry_out.add_method({
+  name: "unlocking with",
+  when: action => action.verb === "unlocking with",
+  handle: function (action) {
+    world.is_locked.set(action.dobj, false);
+  }
+});
+
+actions.report.add_method({
+  name: "unlocking with",
+  when: action => action.verb === "unlocking with",
+  handle: function (action) {
+    out.write("Unlocked.");
+  }
+});
+
+//// Unlocking
+
+/* This verb is mainly to give a hint that you need a key. */
+
+function unlocking(x) {
+  return {verb: "unlocking", dobj: x};
+}
+def_verb("unlocking", "unlock", "unlocking");
+
+parser.action.understand("unlock [something x]", parse => unlocking(parse.x));
+
+require_dobj_accessible("unlocking");
+
+actions.before.add_method({
+  name: "unlocking not lockable",
+  when: action => action.verb === "unlocking" && !world.lockable(action.dobj),
+  handle: function (action) {
+    throw new abort_action(world.no_lock_msg(action.dobj, "no_unlock"));
+  }
+});
+actions.before.add_method({
+  name: "unlocking default",
+  when: action => action.verb === "unlocking" && world.lockable(action.dobj),
+  handle: function (action) {
+    throw new abort_action("{Bobs} {need} to be unlocking that with a key.");
+  }
+});
+
+//// Locking with
+
+function locking_with(x, y) {
+  return {verb: "locking with", dobj: x, iobj: y};
+}
+def_verb("locking with", "lock", "locking", "with");
+
+parser.action.understand("lock/close [something x] with [something y]",
+                         parse => locking_with(parse.x, parse.y));
+
+all_are_mistakes(["lock"], "{Bobs} {need} to be locking something in particular");
+
+require_dobj_accessible("locking with");
+require_iobj_held("locking with");
+
+actions.before.add_method({
+  name: "locking not lockable with",
+  when: action => action.verb === "locking with" && !world.lockable(action.dobj),
+  handle: function (action) {
+    throw new abort_action(world.no_lock_msg(action.dobj, "no_lock"));
+  }
+});
+actions.before.add_method({
+  name: "locking with wrong key",
+  when: action => (action.verb === "locking with" && world.lockable(action.dobj)
+                   && !world.key_of_lock(action.iobj, action.dobj)),
+  handle: function (action) {
+    throw new abort_action(world.wrong_key_msg(action.iobj, action.dobj));
+  }
+});
+actions.before.add_method({
+  name: "locking already locked with",
+  when: action => (action.verb === "locking with" && world.lockable(action.dobj)
+                   && world.is_locked(action.dobj)),
+  handle: function (action) {
+    throw new abort_action(world.no_lock_msg(action.dobj, "already_locked"));
+  }
+});
+
+actions.carry_out.add_method({
+  name: "locking with",
+  when: action => action.verb === "locking with",
+  handle: function (action) {
+    world.is_locked.set(action.dobj, true);
+  }
+});
+
+actions.report.add_method({
+  name: "locking with",
+  when: action => action.verb === "locking with",
+  handle: function (action) {
+    out.write("Locked.");
+  }
+});
+
+//// Locking
+
+/* This verb is mainly to give a hint that you need a key. */
+
+function locking(x) {
+  return {verb: "locking", dobj: x};
+}
+def_verb("locking", "lock", "locking");
+
+parser.action.understand("lock [something x]", parse => locking(parse.x));
+
+require_dobj_accessible("locking");
+
+actions.before.add_method({
+  name: "locking not lockable",
+  when: action => action.verb === "locking" && !world.lockable(action.dobj),
+  handle: function (action) {
+    throw new abort_action(world.no_lock_msg(action.dobj, "no_lock"));
+  }
+});
+actions.before.add_method({
+  name: "locking default",
+  when: action => action.verb === "locking" && world.lockable(action.dobj),
+  handle: function (action) {
+    throw new abort_action("{Bobs} {need} to be locking that with a key.");
+  }
+});
+
+//// Wearing
+
+function wearing(x) {
+  return {verb: "wearing", dobj: x};
+}
+def_verb("wearing", "wear", "wearing");
+
+parser.action.understand("wear [something x]", parse => wearing(parse.x));
+parser.action.understand("put on [something x]", parse => wearing(parse.x));
+parser.action.understand("put [something x] on", parse => wearing(parse.x));
+
+all_are_mistakes(["wear", "put on"],
+                 "{Bobs} {need} to be putting on something in particular.");
+
+require_dobj_held("wearing");
+
+actions.verify.add_method({
+  name: "wearing not worn",
+  when: (action) => action.verb === "wearing" && world.location(action.dobj, "worn_by") !== world.actor,
+  handle: function (action) {
+    return verification.join(this.next(), very_logical_action());
+  }
+});
+
+actions.before.add_method({
+  name: "wearing not wearable",
+  when: action => action.verb === "wearing" && !world.wearable(action.dobj),
+  handle: function (action) {
+    out.The(action.dobj); out.write(" can't be worn.");
+    throw new abort_action();
+  }
+});
+actions.carry_out.add_method({
+  name: "wearing",
+  when: action => action.verb === "wearing",
+  handle: function (action) {
+    world.make_wear(world.actor, action.dobj);
+  }
+});
+actions.report.add_method({
+  name: "wearing",
+  when: action => action.verb === "wearing",
+  handle: function (action) {
+    out.write("{Bobs} now {wear} "); out.the(action.dobj); out.write(".");
+  }
+});
+
+//// Taking off
+
+function taking_off(x) {
+  return {verb: "taking off", dobj: x};
+}
+def_verb("taking off", "take", "taking", "off");
+
+parser.action.understand("take off [something x]", parse => taking_off(parse.x));
+parser.action.understand("take [something x] off", parse => taking_off(parse.x));
+parser.action.understand("remove [something x]", parse => taking_off(parse.x));
+
+all_are_mistakes(["take off"],
+                 "{Bobs} {need} to be taking off something in particular.");
+
+actions.verify.add_method({
+  name: "taking off worn",
+  when: (action) => action.verb === "taking off" && world.location(action.dobj, "worn_by") === world.actor,
+  handle: function (action) {
+    return verification.join(this.next(), very_logical_action());
+  }
+});
+actions.before.add_method({
+  name: "taking off not worn",
+  when: action => action.verb === "taking off" && world.location(action.dobj, "worn_by") !== world.actor,
+  handle: function (action) {
+    throw new abort_action("{Bobs} {are} not wearing that.");
+  }
+});
+actions.carry_out.add_method({
+  name: "taking off",
+  when: action => action.verb === "taking off",
+  handle: function (action) {
+    world.give_to(action.dobj, world.actor);
+  }
+});
+actions.report.add_method({
+  name: "taking off",
+  when: action => action.verb === "taking off",
+  handle: function (action) {
+    out.write("{Bobs} {take} off "); out.the(action.dobj); out.write(".");
+  }
+});
+
 //// Switching on
 
 function switching_on(x) {
@@ -5808,6 +6064,85 @@ actions.before.add_method({
   }
 });
 
+//// Eating
+
+function eating(x) {
+  return {verb: "eating", dobj: x};
+}
+def_verb("eating", "eat", "eating");
+
+parser.action.understand("eat [something x]", parse => eating(parse.x));
+
+all_are_mistakes(["eat"], "{Bobs} {need} to be eating something in particular.");
+
+require_dobj_held("eating");
+
+actions.before.add_method({
+  name: "eating inedible",
+  when: action => action.verb === "eating" && !world.edible(action.dobj),
+  handle: function (action) {
+    throw new abort_action("{Bobs} {don't} feel like eating that.");
+  }
+});
+
+actions.carry_out.add_method({
+  name: "eating default",
+  when: action => action.verb === "eating",
+  handle: function (action) {
+    world.remove_obj(action.dobj);
+  }
+});
+
+actions.report.add_method({
+  name: "eating default",
+  when: action => action.verb === "eating",
+  handle: function (action) {
+    out.write("{Bobs} {eat} ", world.definite_name(action.dobj), ".");
+  }
+});
+
+//// Attacking
+
+function attacking(x) {
+  return {verb: "attacking", dobj: x};
+}
+def_verb("attacking", "attack", "attacking");
+
+parser.action.understand("attack/kill [something x]", parse => attacking(parse.x));
+
+all_are_mistakes(["attack/kill"], "{Bobs} {need} to be attacking something or someone in particular.");
+
+require_dobj_accessible("attacking");
+
+actions.before.add_method({
+  name: "attacking default",
+  when: action => action.verb === "attacking",
+  handle: function (action) {
+    throw new abort_action("Violence isn't the answer to this one.");
+  }
+});
+
+//// Climbing
+
+function climbing(x) {
+  return {verb: "climbing", dobj: x};
+}
+def_verb("climbing", "climb", "climbing");
+
+parser.action.understand("climb [something x]", parse => climbing(parse.x));
+
+all_are_mistakes(["climb"], "{Bobs} {need} to be climbing something in particular.");
+
+require_dobj_accessible("climbing");
+
+actions.before.add_method({
+  name: "climbing default",
+  when: action => action.verb === "climbing",
+  handle: function (action) {
+    out.write("{Bobs} {can't} climb "); out.the(action.dobj); out.write(".");
+  }
+});
+
 //// Waiting
 
 function waiting() {
@@ -5890,5 +6225,38 @@ actions.report.add_method({
   when: action => action.verb === "laughing",
   handle: function (action) {
     out.write("{Bobs} {laugh} to {ourself} quietly.");
+  }
+});
+
+//// Asking about
+
+function asking_about(x, y) {
+  return {verb: "asking about", dobj: x, text: y};
+}
+actions.write_gerund_form.add_method({
+  when: (action) => action.verb === "asking about",
+  handle: function (action) {
+    out.write("asking "); out.the(action.dobj); out.write(" about ");
+    out.write_text(action.text);
+  }
+});
+actions.write_infinitive_form.add_method({
+  when: (action) => action.verb === "asking about",
+  handle: function (action) {
+    out.write("ask "); out.the(action.dobj); out.write(" about ");
+    out.write_text(action.text);
+  }
+});
+
+parser.action.understand("ask/consult [something x] about [text y]",
+                         parse => asking_about(parse.x, parse.y));
+
+require_dobj_accessible("asking about");
+
+actions.report.add_method({
+  name: "asking about default",
+  when: action => action.verb === "asking about",
+  handle: function (action) {
+    out.The(action.dobj); out.write(" has nothing to say about that.");
   }
 });

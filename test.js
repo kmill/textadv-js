@@ -24,12 +24,26 @@ def_obj("strange smell", "backdrop", {
   description: "A strange smell that you can't place. It seems to linger wherever you go."
 });
 
+def_obj("hamburger", "thing", {
+  edible: true,
+  description: "It's just a hamburger sitting there.  Unwrapped, no plate."
+}, {put_in: "Lobby"});
+
 def_obj("photo ID", "thing", {
   added_words: ["@identification"],
   description: `It's your photo ID, which gives you access to TestWorld.  When you rock it
 back and forth the holographic portrait gives you slightly different perspectives of your head.`
 }, {give_to: "player"});
 
+def_obj("leather jacket", "thing", {
+  wearable: true,
+  description: "A stylish leather jacket."
+}, {put_in: "Lobby"});
+
+def_obj("blue jacket", "thing", {
+  wearable: true,
+  description: "It's just an old windbreaker."
+}, {put_in: "Lobby"});
 
 def_obj("Lobby", "room", {
   name: "TestWorld Lobby",
@@ -267,6 +281,19 @@ def_obj("cheap table", "supporter", {
   no_enter_msg: "It'll break if you try to get on it."
 }, {put_in: "Container Alley"});
 
+/*** Room of Locks ***/
+
+def_obj("heavy metal door", "door", {
+  lockable: true,
+  description: "It's a heavy door.  It can be unlocked with your photo ID."
+});
+world.key_of_lock.set("photo ID", "heavy metal door", true);
+
+world.connect_rooms("Lobby", "south", "Room of Locks", {via: "heavy metal door"});
+
+def_obj("Room of Locks", "room", {
+  description: "Right now it's more the Room of Lock (singular)."
+});
 
 /*
 def_obj("plain door", "door", {
