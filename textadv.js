@@ -3873,7 +3873,7 @@ parser.command.add_method({
   handle: function* (cache, s, toks, i) {
     yield* this.next();
     for (var m of parser.action(cache, s, toks, i)) {
-      if (m.end === toks.length || (m.end === toks.length && toks[toks.length - 1].s === ".")) {
+      if (m.end === toks.length || (m.end + 1 === toks.length && toks[toks.length - 1].s === ".")) {
         yield m;
       }
     }
