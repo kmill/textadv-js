@@ -456,14 +456,14 @@ world.remove_obj.add_method({
 });
 
 def_property("contains", 2, {
-  doc: `Given two objects, determine whether the second object transitively contains
-(via the location) the first.  An object does not contain itself.`
+  doc: `Given two objects, determine whether the first object transitively contains
+(via the location) the second.  An object does not contain itself.`
 });
 world.contains.add_method({
   name: "default",
   handle: function (o1, o2) {
-    o1 = world.location(o1);
-    for (; o1; o1 = world.location(o1)) {
+    o2 = world.location(o2);
+    for (; o2; o2 = world.location(o2)) {
       if (o1 === o2) {
         return true;
       }
