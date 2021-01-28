@@ -4720,7 +4720,7 @@ actions.write_gerund_form.add_method({
       out.write(" to ", world.definite_name(action.to));
     }
     if (action.via && action.via !== action.to) {
-      out.write(" via "); out.the(action.to);
+      out.write(" via "); out.the(action.via);
     }
   }
 });
@@ -4732,7 +4732,7 @@ actions.write_infinitive_form.add_method({
       out.write(" to ", world.definite_name(action.to));
     }
     if (action.via && action.via !== action.to) {
-      out.write(" via "); out.the(action.to);
+      out.write(" via "); out.the(action.via);
     }
   }
 });
