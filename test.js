@@ -34,7 +34,7 @@ instead_of(action => action.verb === "eating" && action.dobj === "hamburger",
 
 def_obj("photo ID", "thing", {
   added_words: ["@identification"],
-  description: `It's your photo ID, which gives you access to TestWorld.  When you rock it
+  description: `It's your photo ID, which gives you access to TestWorld.  When you rock {us|photo ID}
 back and forth the holographic portrait gives you slightly different perspectives of your head.`
 }, {give_to: "player"});
 

@@ -2127,13 +2127,25 @@ class HTML_abstract_builder {
       We assume that if the actor of the  context did the action, it should be reported
       in the second person.
 
+      * {$word} is short for {$word|$actor}
+      * {$word|obj} is short for {$word|obj|$actor}
+
       flags:
       * obj - makes "bob" be the object of a sentence
-
       */
 
-    var is_me = world.actor === world.player;
-    var rewritten = out._reword(word.toLowerCase(), flags, world.actor, is_me);
+    var is_obj = false;
+    if (flags.length > 0 && flags[0] === "obj") {
+      is_obj = true;
+      flags.shift();
+    }
+    var object = world.actor;
+    if (flags.length > 0) {
+      object = flags.shift();
+    }
+
+    var is_me = object === world.player;
+    var rewritten = out._reword(word.toLowerCase(), is_obj, object, is_me);
     if (word[0].toLowerCase() === word[0]) {
       out.write_text(rewritten);
     } else {
@@ -2141,7 +2153,7 @@ class HTML_abstract_builder {
     }
   }
 
-  _reword(word, flags, actor, is_me) {
+  _reword(word, is_obj, actor, is_me) {
     if (is_me) {
       if (word === "we")
         return world.subject_pronoun_if_me(actor);
@@ -2150,7 +2162,7 @@ class HTML_abstract_builder {
       else if (word === "ourself" || word === "ourselves")
         return world.reflexive_pronoun_if_me(actor);
       else if (word === "bobs") {
-        if (flags.includes("obj"))
+        if (is_obj)
           return world.object_pronoun_if_me(actor);
         else
           return world.subject_pronoun_if_me(actor);
