@@ -3718,11 +3718,16 @@ function make_parse_kind(kind) {
         }
       }
     }
+    function is_exact(start, m) {
+      /* Check for an exact match, given that we start with the token at index 'start' */
+      return toks.slice(start, m.end).map(t => t.s).join(" ") === world.name(m.value).toLowerCase();
+    }
     // Get the best matches for each possible object
     var matches = new Map;
     for (var m of in_adj(j, null)) {
       var mscore = m.score;
-      if (toks.slice(m.start, m.end).map(t => t.s).join(" ") === world.name(m.value).toLowerCase()) {
+      /* Check if it's an exact match.  We need `is_exact(i, m)` in case the `world.name` has a definite article. */
+      if (is_exact(i, m) || is_exact(m.start, m)) {
         // exact match, bonus point
         mscore += 1;
       }
