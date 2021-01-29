@@ -1951,15 +1951,29 @@ class HTML_abstract_builder {
   }
 
   the_(o) { make_known(o); out.write_text(world.definite_name(o)); }
-  the(o) { out.wrap_examine(o, () => out.the_(o)); }
   The_(o) { make_known(o); out.write_text(str_util.cap(world.definite_name(o))); }
+  a_(o) { make_known(o); out.write_text(world.indefinite_name(o)); }
+  A_(o) { make_known(o); out.write_text(str_util.cap(world.indefinite_name(o))); }
+  we_(o) { make_known(o); out.write_text(world.subject_pronoun(o)); }
+  We_(o) { make_known(o); out.write_text(str_util.cap(world.subject_pronoun(o))); }
+  us_(o) { make_known(o); out.write_text(world.object_pronoun(o)); }
+  Us_(o) { make_known(o); out.write_text(str_util.cap(world.object_pronoun(o))); }
+  our_(o) { make_known(o); out.write_text(world.possessive_pronoun(o)); }
+  Our_(o) { make_known(o); out.write_text(str_util.cap(world.possessive_pronoun(o))); }
+  ourself_(o) { make_known(o); out.write_text(world.reflexive_pronoun(o)); }
+  Ourself_(o) { make_known(o); out.write_text(str_util.cap(world.reflexive_pronoun(o))); }
+  the(o) { out.wrap_examine(o, () => out.the_(o)); }
   The(o) { out.wrap_examine(o, () => out.The_(o)); }
-  a(o) { make_known(o); out.wrap_examine(o, () => out.write_text(world.indefinite_name(o))); }
-  A(o) { make_known(o); out.wrap_examine(o, () => out.write_text(str_util.cap(world.indefinite_name(o)))); }
-  we(o) { make_known(o); out.wrap_examine(o, () => out.write_text(world.subject_pronoun(o))); }
-  We(o) { make_known(o); out.wrap_examine(o, () => out.write_text(str_util.cap(world.subject_pronoun(o)))); }
-  us(o) { make_known(o); out.wrap_examine(o, () => out.write_text(world.object_pronoun(o))); }
-  Us(o) { make_known(o); out.wrap_examine(o, () => out.write_text(str_util.cap(world.object_pronoun(o)))); }
+  a(o) { out.wrap_examine(o, () => out.a_(o)); }
+  A(o) { out.wrap_examine(o, () => out.A_(o)); }
+  we(o) { make_known(o); out.wrap_examine(o, () => out.we_(o)); }
+  We(o) { make_known(o); out.wrap_examine(o, () => out.We_(o)); }
+  us(o) { make_known(o); out.wrap_examine(o, () => out.us_(o)); }
+  Us(o) { make_known(o); out.wrap_examine(o, () => out.Us_(o)); }
+  our(o) { make_known(o); out.wrap_examine(o, () => out.our_(o)); }
+  Our(o) { make_known(o); out.wrap_examine(o, () => out.Our_(o)); }
+  ourself(o) { make_known(o); out.wrap_examine(o, () => out.ourself_(o)); }
+  Ourself(o) { make_known(o); out.wrap_examine(o, () => out.Ourself_(o)); }
 
   serial_comma(objs, {conj="and", comma=",", force_comma=false}={}) {
     /* Concatenates a list of writers, using the serial comma.  The objs can either be functions
